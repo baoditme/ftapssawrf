@@ -80,6 +80,16 @@ local state = {
     flyEnabled = false,
     flySpeed = 50,
 }
+-- Load menuScale sớm (trước khi tạo slider)
+pcall(function()
+    local HS = game:GetService("HttpService")
+    if readfile and isfile and isfile("BHUB_Config/bhub_ftap_state.json") then
+        local ok, decoded = pcall(function() return HS:JSONDecode(readfile("BHUB_Config/bhub_ftap_state.json")) end)
+        if ok and decoded and type(decoded.menuScale) == "number" then
+            state.menuScale = decoded.menuScale
+        end
+    end
+end)
 
 -- ==========================================
 -- NOTIFY
@@ -506,7 +516,8 @@ local function BreakObject(objectName)
                 end
             end
         end
-        Notify("Break Object", "Broke " .. objectName, "success", 3)
+        state.session.track_break()
+Notify("Break Object", "Broke " .. objectName, "success", 3)
     end)
 end
 
@@ -580,7 +591,8 @@ local function BreakPlot(plotNum)
             pcall(function()
                 stickyPartEvent:FireServer(sp, workspace_.Plots:FindFirstChild("Plot" .. plotNum).PlotArea, CFrame.new(2.3e9, 2.3e9, 2.3e9))
             end)
-            Notify("Break Plot", "Plot " .. plotNum .. " broken", "success", 3)
+            state.session.track_break()
+Notify("Break Plot", "Plot " .. plotNum .. " broken", "success", 3)
         end
     end)
 end
@@ -769,7 +781,7 @@ local function ExecuteNoBlobKick()
                 destroyGrabLine:FireServer(t.hrp)
             end)
         end
-
+        state.session.track_kill(#hrps)
         -- [FIX 1] Giữ Line Lag đúng 12s
         task.wait(12)
         StopLineLag()
@@ -875,7 +887,8 @@ local function KickAll()
         end)
         task.wait(0.5)
         if blob and blob.Parent == toysFolder then DestroyT(blob) end
-        Notify("Kick All", "Server wiped", "success", 4)
+state.session.track_kill(#targets)
+Notify("Kick All", "Server wiped", "success", 4)
     end)
 end
 local function StealHoldables(targetName, mode)
@@ -909,18 +922,22 @@ local function StealHoldables(targetName, mode)
                         end
                         if rigid and rigid.Attachment1 and rigid.Attachment1.Parent and rigid.Attachment1.Parent.Parent and rigid.Attachment1.Parent.Parent.Name == localPlayer.Name then
                             if mode == "Hold" then
-                                toy.Name = "Broken"
-                            elseif mode == "Use" then
-                                toy.Name = "Broken"
-                                pcall(function() useHold:FireServer(toy) end)
-                                task.wait(0.1)
-                                pcall(function() dropItem:InvokeServer(toy) end)
-                            elseif mode == "Break" then
-                                toy.Name = "Broken"
-                                pcall(function() dropItem:InvokeServer(toy) end)
-                            elseif mode == "Delete" then
-                                pcall(function() dropItem:InvokeServer(toy, CFrame.new(0, -500, 0), Vector3.zero) end)
-                            end
+    toy.Name = "Broken"
+    state.session.track_steal()
+elseif mode == "Use" then
+    toy.Name = "Broken"
+    pcall(function() useHold:FireServer(toy) end)
+    task.wait(0.1)
+    pcall(function() dropItem:InvokeServer(toy) end)
+    state.session.track_steal()
+elseif mode == "Break" then
+    toy.Name = "Broken"
+    pcall(function() dropItem:InvokeServer(toy) end)
+    state.session.track_steal()
+elseif mode == "Delete" then
+    pcall(function() dropItem:InvokeServer(toy, CFrame.new(0, -500, 0), Vector3.zero) end)
+    state.session.track_steal()
+end
                         end
                     end
                 end
@@ -1418,6 +1435,67 @@ Instance.new("UICorner", loadFill).CornerRadius = UDim.new(1, 0)
 -- ==========================================
 -- KHỞI TẠO KHUNG MAIN (ẨN TRÊN NÓC MÀN HÌNH)
 -- ==========================================
+-- ==========================================
+-- AUTO DOWNLOAD BACKGROUND (optional)
+-- ==========================================
+pcall(function()
+    -- ==========================================
+    -- BƯỚC 1: Check cache trước
+    -- ==========================================
+    local cachePaths = {"bg_drive.png", "bg_drive.jpg"}
+    for _, p in ipairs(cachePaths) do
+        if isfile and isfile(p) then
+            local ok, url = pcall(function()
+                if getcustomasset then return getcustomasset(p) end
+                if getsynasset then return getsynasset(p) end
+            end)
+            if ok and url then
+                _G.NileBgUrl = url
+                print("[BHUB] Dùng ảnh cache:", p)
+                return   -- thoát, không tải lại
+            end
+        end
+    end
+
+    -- ==========================================
+    -- BƯỚC 2: Chưa có cache → tải
+    -- ==========================================
+    local FILE_ID = "1hjaDZW9wq-R4tBvlwBv5Wwr0TXatgoBS"
+    local URL = "https://drive.usercontent.google.com/download?id=" .. FILE_ID .. "&export=download&confirm=t"
+    local http = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
+    if not (http and writefile) then
+        print("[BHUB] Executor thiếu http/writefile - bỏ qua tải ảnh")
+        return
+    end
+    print("[BHUB] Chưa có cache, đang tải từ Drive...")
+    local ok, res = pcall(function() return http({Url = URL, Method = "GET"}) end)
+    if not (ok and res and res.Body and #res.Body > 100) then
+        print("[BHUB] Tải ảnh thất bại - dùng ID online mặc định")
+        return
+    end
+    if res.Body:sub(1,1) == "<" then
+        print("[BHUB] Drive trả HTML (file private/warning) - dùng ID online")
+        return
+    end
+    local ext = "jpg"
+    if string.byte(res.Body,1) == 0x89 then ext = "png" end
+    local path = "bg_drive." .. ext
+    if isfile and isfile(path) then delfile(path) end
+    writefile(path, res.Body)
+    if getcustomasset then
+        local ok2, url = pcall(getcustomasset, path)
+        if ok2 and url then _G.NileBgUrl = url end
+    end
+    if getsynasset and not _G.NileBgUrl then
+        local ok3, url = pcall(getsynasset, path)
+        if ok3 and url then _G.NileBgUrl = url end
+    end
+    if _G.NileBgUrl then
+        print("[BHUB] Background downloaded + cached:", path)
+    else
+        print("[BHUB] Executor không hỗ trợ getcustomasset/getsynasset")
+    end
+end)
 local main = Instance.new("Frame")
 main.Size = UDim2.new(0, 720, 0, 520)
 main.Position = UDim2.new(0.5, -360, 0, -560) -- Treo sẵn trên nóc
@@ -1436,11 +1514,41 @@ local mainStroke = Instance.new("UIStroke", main)
 mainStroke.Thickness = 1
 mainStroke.Color = Color3.fromRGB(255, 255, 255)
 mainStroke.Transparency = 0.93
+-- ==========================================
+-- CUSTOM BACKGROUND IMAGE (phủ toàn menu)
+-- ==========================================
+main.BackgroundTransparency = 1
+
+local bgImage = Instance.new("ImageLabel")
+bgImage.Name = "CustomBackground"
+bgImage.Size = UDim2.fromScale(1, 1)
+bgImage.Position = UDim2.fromScale(0, 0)
+bgImage.BackgroundTransparency = 1
+bgImage.Image = _G.NileBgUrl or "rbxassetid://132880483631327"
+bgImage.ScaleType = Enum.ScaleType.Crop
+bgImage.ZIndex = 0                    -- DƯỚI TẤT CẢ
+bgImage.Parent = main
+Instance.new("UICorner", bgImage).CornerRadius = UDim.new(0, 8)
+
+
+
+-- Lớp tối nhẹ phủ ảnh (giúp chữ đọc được) - điều chỉnh qua slider
+local bgTint = Instance.new("Frame")
+bgTint.Name = "BackgroundTint"
+bgTint.Size = UDim2.fromScale(1, 1)
+bgTint.BackgroundColor3 = Color3.fromRGB(8, 8, 14)
+bgTint.BackgroundTransparency = 0.35       -- mặc định tối 35%
+bgTint.BorderSizePixel = 0
+bgTint.ZIndex = 0                           -- cùng cấp với bgImage
+bgTint.Parent = main
+Instance.new("UICorner", bgTint).CornerRadius = UDim.new(0, 8)
+
 
 -- Title bar
 local titleBar = Instance.new("Frame")
 titleBar.Size = UDim2.new(1, 0, 0, 42)
 titleBar.BackgroundColor3 = C_PANEL
+titleBar.BackgroundTransparency = 0.7
 titleBar.BorderSizePixel = 0
 titleBar.ZIndex = 3
 titleBar.Parent = main
@@ -1450,6 +1558,7 @@ local titleBottomFix = Instance.new("Frame")
 titleBottomFix.Size = UDim2.new(1, 0, 0, 10)
 titleBottomFix.Position = UDim2.new(0, 0, 1, -10)
 titleBottomFix.BackgroundColor3 = C_PANEL
+titleBottomFix.BackgroundTransparency = 0.7
 titleBottomFix.BorderSizePixel = 0
 titleBottomFix.ZIndex = 3
 titleBottomFix.Parent = titleBar
@@ -1535,6 +1644,7 @@ local sidebar = Instance.new("ScrollingFrame")
 sidebar.Size = UDim2.new(0, 150, 1, -50)
 sidebar.Position = UDim2.new(0, 6, 0, 46)
 sidebar.BackgroundColor3 = C_PANEL
+sidebar.BackgroundTransparency = 0.75
 sidebar.BorderSizePixel = 0
 sidebar.ZIndex = 3
 sidebar.ScrollBarThickness = 2
@@ -1551,6 +1661,7 @@ local content = Instance.new("Frame")
 content.Size = UDim2.new(1, -168, 1, -50)
 content.Position = UDim2.new(0, 162, 0, 46)
 content.BackgroundColor3 = C_PANEL
+content.BackgroundTransparency = 0.75
 content.BorderSizePixel = 0
 content.ZIndex = 3
 content.Parent = main
@@ -1766,6 +1877,7 @@ local function makeButton(parent, text, cb, danger)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0, 32)
     btn.BackgroundColor3 = danger and Color3.fromRGB(45, 25, 30) or C_ELEM
+        btn.BackgroundTransparency = 0
     btn.Text = text
     btn.TextColor3 = danger and Color3.fromRGB(255, 120, 130) or C_TEXT
     btn.Font = Enum.Font.GothamMedium
@@ -1804,6 +1916,7 @@ local function makeToggle(parent, text, default, cb)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0, 32)
     btn.BackgroundColor3 = C_ELEM
+        btn.BackgroundTransparency = 0
     btn.Text = "  " .. text
     btn.TextColor3 = C_TEXT
     btn.Font = Enum.Font.GothamMedium
@@ -1854,6 +1967,7 @@ local function makeSlider(parent, text, default, min, max, cb)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 42)
     frame.BackgroundColor3 = C_ELEM
+        frame.BackgroundTransparency = 0
     frame.BorderSizePixel = 0
     frame.Parent = parent
 
@@ -2508,11 +2622,13 @@ local function ApplyTargetMethods(p, methods)
             Teleport(head, origCF, CFrame.new(0, 0, 0))
         end
         if methods.Void then
-            head.Velocity = Vector3.new(0, -100000000, 0)
-        end
-        if methods.Kill then
-            pcall(function() tHum:ChangeState(Enum.HumanoidStateType.Dead) end)
-        end
+    head.Velocity = Vector3.new(0, -100000000, 0)
+    state.session.track_void()
+end
+if methods.Kill then
+    pcall(function() tHum:ChangeState(Enum.HumanoidStateType.Dead) end)
+    state.session.track_kill()
+end
         UnGrab(head)
     end
     if hrp.Parent then Teleport(hrp, origCF, CFrame.new(0, 0, 0)) end
@@ -2555,9 +2671,10 @@ local function ApplyBlobMethod(p, method)
             bp.Parent = tHrp
             task.delay(0.25, function() if bp then bp:Destroy() end end)
         elseif method == "Kill" then
-            cr:FireServer(lw)
-            pcall(function() tHum:ChangeState(Enum.HumanoidStateType.Dead) end)
-        end
+    cr:FireServer(lw)
+    pcall(function() tHum:ChangeState(Enum.HumanoidStateType.Dead) end)
+    state.session.track_kill()
+end
         -- "Lock": không release, giữ nguyên người đó trên tay Blobman
     end
     if method ~= "Lock" and hrp.Parent then Teleport(hrp, origCF, CFrame.new(0, 0, 0)) end
@@ -2778,13 +2895,23 @@ end)
 
 -- Kích thước menu
 local mainScale = Instance.new("UIScale")
-mainScale.Scale = 1
+mainScale.Scale = (state.menuScale or 100) / 100
 mainScale.Parent = main
-makeSlider(settingsTab, "Menu Scale (%)", 100, 60, 140, function(v) mainScale.Scale = v / 100 end)
+makeSlider(settingsTab, "Menu Scale (%)", state.menuScale or 100, 60, 140, function(v)
+    state.menuScale = v
+    mainScale.Scale = v / 100
+end)
 
--- Độ trong suốt nền menu
-makeSlider(settingsTab, "Menu Transparency (%)", 0, 0, 60, function(v)
-    main.BackgroundTransparency = v / 100
+makeSlider(settingsTab, "Background Darkness (%)", 35, 0, 80, function(v)
+    bgTint.BackgroundTransparency = v / 100
+end)
+
+makeSlider(settingsTab, "Panel Transparency (%)", 70, 0, 95, function(v)
+    local t = v / 100
+    titleBar.BackgroundTransparency = t
+    titleBottomFix.BackgroundTransparency = t
+    sidebar.BackgroundTransparency = t
+    content.BackgroundTransparency = t
 end)
 
 
@@ -2804,7 +2931,25 @@ state.hudConfig = {
     wmPos = {0, 10, 0, 10},         wmSize = {0, 520, 0, 26},
     hkPos = {0, 10, 0, 42},         hkSize = {0, 260, 0, 190},
     plPos = {0, 10, 0, 240},        plSize = {0, 260, 0, 200},
+    ssPos = {0, 10, 0, 448},        ssSize = {0, 260, 0, 130},
 }
+
+state.hudVisible = { wm = true, hk = true, pl = true, ss = true }
+
+state.session = {
+    start = tick(),
+    kills = 0, voids = 0, breaks = 0, steals = 0, deaths = 0,
+}
+function state.session.track_kill(n)  state.session.kills  = state.session.kills  + (n or 1) end
+function state.session.track_void(n)  state.session.voids  = state.session.voids  + (n or 1) end
+function state.session.track_break(n) state.session.breaks = state.session.breaks + (n or 1) end
+function state.session.track_steal(n) state.session.steals = state.session.steals + (n or 1) end
+function state.session.track_death()  state.session.deaths = state.session.deaths + 1 end
+function state.session.reset()
+    state.session.start = tick()
+    state.session.kills, state.session.voids = 0, 0
+    state.session.breaks, state.session.steals, state.session.deaths = 0, 0, 0
+end
 
 local function applyTransform(inst, posData, sizeData)
     if posData then inst.Position = UDim2.new(posData[1], posData[2], posData[3], posData[4]) end
@@ -2813,6 +2958,52 @@ end
 
 local function packUDim2(u)
     return {u.X.Scale, u.X.Offset, u.Y.Scale, u.Y.Offset}
+end
+-- ==========================================
+-- SNOW EFFECT (không ảnh, dùng Frame)
+-- ==========================================
+local function createSnowEffect(parent, density)
+    density = density or 12
+    local layer = Instance.new("Frame")
+    layer.Name = "SnowLayer"
+    layer.Size = UDim2.fromScale(1, 1)
+    layer.BackgroundTransparency = 1
+    layer.ClipsDescendants = true
+    layer.ZIndex = 1
+    layer.Parent = parent
+
+    local function spawnFlake()
+        if not layer.Parent then return end
+        local size = math.random(2, 4)
+        local flake = Instance.new("Frame")
+        flake.Size = UDim2.fromOffset(size, size)
+        flake.Position = UDim2.new(math.random(), 0, -0.05, 0)
+        flake.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        flake.BackgroundTransparency = math.random(40, 75) / 100
+        flake.BorderSizePixel = 0
+        flake.ZIndex = 1
+        flake.Parent = layer
+        Instance.new("UICorner", flake).CornerRadius = UDim.new(1, 0)
+
+        local dur = math.random(40, 80) / 10   -- 4.0 - 8.0s
+        local drift = (math.random() - 0.5) * 0.08
+        local target = UDim2.new(flake.Position.X.Scale + drift, 0, 1.05, 0)
+
+        local t = tweenService:Create(flake,
+            TweenInfo.new(dur, Enum.EasingStyle.Linear),
+            { Position = target, Rotation = math.random(-180, 180) })
+        t:Play()
+        t.Completed:Connect(function()
+            flake:Destroy()
+            if layer.Parent then
+                task.delay(math.random(0, 15) / 10, spawnFlake)
+            end
+        end)
+    end
+
+    for i = 1, density do
+        task.delay(math.random(0, 60) / 10, spawnFlake)
+    end
 end
 
 local function makeResizableHudBox(name, defaultPos, defaultSize)
@@ -2868,12 +3059,21 @@ local function makeResizableHudBox(name, defaultPos, defaultSize)
         end
     end)
 
+    if state.snowEnabled ~= false then
+        pcall(createSnowEffect, f, 10)
+    end
     return f, resizeGrip
 end
 
 local wmBox, wmGrip = makeResizableHudBox("WM_HUD", state.hudConfig.wmPos, state.hudConfig.wmSize)
 local hotkeyBox, hkGrip = makeResizableHudBox("HK_HUD", state.hudConfig.hkPos, state.hudConfig.hkSize)
 local pBox, plGrip = makeResizableHudBox("PL_HUD", state.hudConfig.plPos, state.hudConfig.plSize)
+local statsBox, ssGrip = makeResizableHudBox("SS_HUD", state.hudConfig.ssPos, state.hudConfig.ssSize)
+
+wmBox.Visible      = state.hudVisible.wm ~= false
+hotkeyBox.Visible  = state.hudVisible.hk ~= false
+pBox.Visible       = state.hudVisible.pl ~= false
+statsBox.Visible   = state.hudVisible.ss ~= false
 
 -- 1. Watermark
 local wmLbl = Instance.new("TextLabel")
@@ -3104,6 +3304,114 @@ end
 
 players.PlayerAdded:Connect(refreshPlayerListHud)
 players.PlayerRemoving:Connect(refreshPlayerListHud)
+-- ==========================================
+-- 4. SESSION STATS HUD
+-- ==========================================
+local ssTitle = Instance.new("TextLabel")
+ssTitle.Size = UDim2.new(1, -60, 0, 18)
+ssTitle.Position = UDim2.new(0, 8, 0, 4)
+ssTitle.BackgroundTransparency = 1
+ssTitle.Text = "SESSION  00:00"
+ssTitle.TextColor3 = C_MUTED
+ssTitle.Font = Enum.Font.GothamBold
+ssTitle.TextSize = 10
+ssTitle.TextXAlignment = Enum.TextXAlignment.Left
+ssTitle.Parent = statsBox
+
+-- Nút reset nhỏ ở góc phải title
+local ssReset = Instance.new("TextButton")
+ssReset.Size = UDim2.new(0, 34, 0, 14)
+ssReset.Position = UDim2.new(1, -42, 0, 4)
+ssReset.BackgroundColor3 = C_ELEM
+ssReset.Text = "reset"
+ssReset.TextColor3 = C_MUTED
+ssReset.Font = Enum.Font.GothamMedium
+ssReset.TextSize = 9
+ssReset.AutoButtonColor = false
+ssReset.Parent = statsBox
+Instance.new("UICorner", ssReset).CornerRadius = UDim.new(0, 4)
+ssReset.MouseButton1Click:Connect(function()
+    state.session.reset()
+    Notify("Session", "Session stats reset", "info", 1.5)
+end)
+ssReset.MouseEnter:Connect(function()
+    tweenService:Create(ssReset, TweenInfo.new(0.12), { BackgroundColor3 = C_ELEM_HOVER }):Play()
+end)
+ssReset.MouseLeave:Connect(function()
+    tweenService:Create(ssReset, TweenInfo.new(0.12), { BackgroundColor3 = C_ELEM }):Play()
+end)
+
+-- Grid 2 cột x 3 hàng
+local ssGrid = Instance.new("Frame")
+ssGrid.Size = UDim2.new(1, -16, 1, -28)
+ssGrid.Position = UDim2.new(0, 8, 0, 24)
+ssGrid.BackgroundTransparency = 1
+ssGrid.Parent = statsBox
+
+local ssLayout = Instance.new("UIGridLayout", ssGrid)
+ssLayout.CellSize = UDim2.new(0.5, -3, 0, 18)
+ssLayout.CellPadding = UDim2.new(0, 6, 0, 4)
+ssLayout.SortOrder = Enum.SortOrder.LayoutOrder
+
+local function ssCell(order, color)
+    local f = Instance.new("Frame")
+    f.BackgroundTransparency = 1
+    f.LayoutOrder = order
+    f.Parent = ssGrid
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(1, 0, 1, 0)
+    l.BackgroundTransparency = 1
+    l.Text = ""
+    l.TextColor3 = color or Color3.fromRGB(200, 200, 210)
+    l.Font = Enum.Font.GothamSemibold
+    l.TextSize = 10
+    l.TextXAlignment = Enum.TextXAlignment.Left
+    l.TextTruncate = Enum.TextTruncate.AtEnd
+    l.Parent = f
+    return l
+end
+
+local ssKills  = ssCell(1, Color3.fromRGB(240, 90, 90))
+local ssVoids  = ssCell(2, Color3.fromRGB(140, 100, 255))
+local ssBreaks = ssCell(3, Color3.fromRGB(240, 180, 60))
+local ssSteals = ssCell(4, Color3.fromRGB(90, 200, 240))
+local ssDeaths = ssCell(5, Color3.fromRGB(200, 100, 100))
+local ssKD     = ssCell(6, Color3.fromRGB(120, 240, 140))
+
+-- Update loop mỗi 0.5s
+task.spawn(function()
+    while wmGui.Parent do
+        task.wait(0.5)
+        if state.hudVisible.ss then
+            local s = state.session
+            local elapsed = tick() - s.start
+            local mins = math.floor(elapsed / 60)
+            local secs = math.floor(elapsed % 60)
+            ssTitle.Text = string.format("SESSION  %02d:%02d", mins, secs)
+
+            ssKills.Text  = "Kills   " .. s.kills
+            ssVoids.Text  = "Voids   " .. s.voids
+            ssBreaks.Text = "Breaks  " .. s.breaks
+            ssSteals.Text = "Steals  " .. s.steals
+            ssDeaths.Text = "Deaths  " .. s.deaths
+
+            local kd = s.deaths == 0 and s.kills or (s.kills / s.deaths)
+            ssKD.Text = string.format("K/D     %.2f", kd)
+        end
+    end
+end)
+
+-- Auto track deaths qua Humanoid.Died
+local function _hookDeath(ch)
+    local hum = ch:FindFirstChildOfClass("Humanoid") or ch:WaitForChild("Humanoid", 3)
+    if hum then
+        hum.Died:Connect(function()
+            state.session.track_death()
+        end)
+    end
+end
+if localPlayer.Character then _hookDeath(localPlayer.Character) end
+localPlayer.CharacterAdded:Connect(_hookDeath)
 task.spawn(function()
     while wmGui.Parent do
         pcall(refreshPlayerListHud)
@@ -3166,7 +3474,7 @@ local function setHudEditMode(enabled)
     editGui.Enabled = enabled
     main.Visible = not enabled
 
-    for _, box in ipairs({wmBox, hotkeyBox, pBox}) do
+    for _, box in ipairs({wmBox, hotkeyBox, pBox, statsBox}) do
         if box and box.Parent then
             box.Active = enabled
             box.Draggable = enabled
@@ -3189,6 +3497,8 @@ doneBtn.MouseButton1Click:Connect(function()
         state.hudConfig.hkSize = packUDim2(hotkeyBox.Size)
         state.hudConfig.plPos = packUDim2(pBox.Position)
         state.hudConfig.plSize = packUDim2(pBox.Size)
+        state.hudConfig.ssPos = packUDim2(statsBox.Position)
+        state.hudConfig.ssSize = packUDim2(statsBox.Size)
     end
     setHudEditMode(false)
     Notify("HUD", "Đã lưu vị trí và kích thước HUD!", "success", 2.5)
@@ -3199,6 +3509,7 @@ cancelBtn.MouseButton1Click:Connect(function()
         applyTransform(wmBox, originalHudState.wmPos, originalHudState.wmSize)
         applyTransform(hotkeyBox, originalHudState.hkPos, originalHudState.hkSize)
         applyTransform(pBox, originalHudState.plPos, originalHudState.plSize)
+        applyTransform(statsBox, originalHudState.ssPos, originalHudState.ssSize)
     end
     setHudEditMode(false)
     Notify("HUD", "Đã hủy các thay đổi HUD.", "info", 2)
@@ -3210,8 +3521,55 @@ makeButton(settingsTab, "Move, Rescale Watermark HUD", function()
         wmPos = packUDim2(wmBox.Position), wmSize = packUDim2(wmBox.Size),
         hkPos = packUDim2(hotkeyBox.Position), hkSize = packUDim2(hotkeyBox.Size),
         plPos = packUDim2(pBox.Position), plSize = packUDim2(pBox.Size),
+        ssPos = packUDim2(statsBox.Position), ssSize = packUDim2(statsBox.Size),
     }
     setHudEditMode(true)
+end)                                    -- ← end) đóng makeButton, ĐẶT TRƯỚC
+
+makeSection(settingsTab, "HUD Visibility")
+state.snowEnabled = true
+
+makeToggle(settingsTab, "Snow Effect on HUD", true, function(on)
+    state.snowEnabled = on
+    -- Bật: thêm snow vào các box chưa có
+    -- Tắt: xoá hết layer
+    for _, box in ipairs({wmBox, hotkeyBox, pBox, statsBox}) do
+        if box and box.Parent then
+            local existing = box:FindFirstChild("SnowLayer")
+            if on and not existing then
+                pcall(createSnowEffect, box, 10)
+            elseif not on and existing then
+                existing:Destroy()
+            end
+        end
+    end
+end)
+
+makeToggle(settingsTab, "Show Watermark", true, function(on)
+    state.hudVisible.wm = on
+    wmBox.Visible = on
+end)
+
+makeToggle(settingsTab, "Show Hotkey List", true, function(on)
+    state.hudVisible.hk = on
+    hotkeyBox.Visible = on
+end)
+
+makeToggle(settingsTab, "Show Player List", true, function(on)
+    state.hudVisible.pl = on
+    pBox.Visible = on
+end)
+
+makeToggle(settingsTab, "Show Session Stats", true, function(on)
+    state.hudVisible.ss = on
+    statsBox.Visible = on
+end)
+
+makeToggle(settingsTab, "Show All HUD", true, function(on)
+    state.hudVisible.wm, state.hudVisible.hk, state.hudVisible.pl = on, on, on
+    state.hudVisible.ss = on
+    wmBox.Visible, hotkeyBox.Visible, pBox.Visible = on, on, on
+    statsBox.Visible = on
 end)
 
 -- Thông báo: tắt theo loại
@@ -4247,6 +4605,8 @@ end -- kết thúc khối do của Module 7
 -- ==========================================
 do
     local Debris = game:GetService("Debris")
+    local _voidTracked = {}   -- [userId] = tick() lần cuối track
+local _killTracked = {}
 
     local function _isWL(p)
         return state.isWL and state.isWL(p) or false
@@ -4336,26 +4696,36 @@ do
         local tHrp = t.hrp
 
         if mode == "Kill" then
-            if not _ownerIsMe(tHrp) then
-                _snowship(tHrp)
-            else
-                task.spawn(function()
-                    pcall(function()
-                        t.hum.BreakJointsOnDeath = false
-                        t.hum:ChangeState(Enum.HumanoidStateType.Dead)
-                    end)
-                    task.wait(0.05)
-                    _release(tHrp)
-                    _skyVelocity(tHrp)
-                end)
-            end
+    if not _ownerIsMe(tHrp) then
+        _snowship(tHrp)
+    else
+        local uid = t.player.UserId
+        if not _killTracked[uid] or tick() - _killTracked[uid] > 5 then
+            _killTracked[uid] = tick()
+            state.session.track_kill()
+        end
+        task.spawn(function()
+            pcall(function()
+                t.hum.BreakJointsOnDeath = false
+                t.hum:ChangeState(Enum.HumanoidStateType.Dead)
+            end)
+            task.wait(0.05)
+            _release(tHrp)
+            _skyVelocity(tHrp)
+        end)
+    end
         elseif mode == "Void" then
-            if not _ownerIsMe(tHrp) then
-                _snowship(tHrp)
-            else
-                _release(tHrp)
-                _skyVelocity(tHrp)
-            end
+    if not _ownerIsMe(tHrp) then
+        _snowship(tHrp)
+    else
+        _release(tHrp)
+        _skyVelocity(tHrp)
+        local uid = t.player.UserId
+        if not _voidTracked[uid] or tick() - _voidTracked[uid] > 5 then
+            _voidTracked[uid] = tick()
+            state.session.track_void()
+        end
+    end
         elseif mode == "Fling" then
             if not _ownerIsMe(tHrp) then
                 _snowship(tHrp)
@@ -4627,6 +4997,7 @@ do
                     pcall(function()
                         grabbedHum.BreakJointsOnDeath = false
                         grabbedHum:ChangeState(Enum.HumanoidStateType.Dead)
+                        state.session.track_kill()
                     end)
                     _release(part)
                     if grabbedHRP then _skyVelocity(grabbedHRP) end
@@ -4635,6 +5006,7 @@ do
 
             if modes["Void Grab"] and grabbedHRP then
                 task.spawn(function()
+                state.session.track_void()
                     _release(part)
                     _skyVelocity(grabbedHRP)
                 end)
@@ -5509,140 +5881,7 @@ do
     Instance.new("UICorner", lbl).CornerRadius = UDim.new(0, 6)
 end
 
--- ==========================================
--- MODULE 15: THEMES
--- ==========================================
-do
-    local themeModified = {}
 
-    local function restore()
-        for inst, props in pairs(themeModified) do
-            for prop, val in pairs(props) do
-                pcall(function() inst[prop] = val end)
-            end
-        end
-        themeModified = {}
-    end
-
-    local function track(inst, prop, val)
-        if not themeModified[inst] then themeModified[inst] = {} end
-        if themeModified[inst][prop] == nil then
-            themeModified[inst][prop] = inst[prop]
-        end
-        inst[prop] = val
-    end
-
-    local orig = {
-        ACCENT = Color3.fromRGB(138, 100, 255),
-        ACCENT2 = Color3.fromRGB(90, 200, 255),
-        BG = Color3.fromRGB(22, 22, 28),
-        BG2 = Color3.fromRGB(30, 30, 38),
-        BG3 = Color3.fromRGB(40, 40, 50),
-        TEXT = Color3.fromRGB(240, 240, 245),
-        TEXT2 = Color3.fromRGB(150, 150, 165),
-    }
-
-    local THEMES = {
-        Default = orig,
-        ["Neon Green"] = {
-            ACCENT = Color3.fromRGB(0, 255, 130),
-            ACCENT2 = Color3.fromRGB(150, 255, 200),
-            BG = Color3.fromRGB(15, 22, 18),
-            BG2 = Color3.fromRGB(22, 32, 26),
-            BG3 = Color3.fromRGB(30, 44, 36),
-            TEXT = Color3.fromRGB(230, 255, 240),
-            TEXT2 = Color3.fromRGB(140, 200, 160),
-        },
-        ["Cyberpunk"] = {
-            ACCENT = Color3.fromRGB(255, 0, 128),
-            ACCENT2 = Color3.fromRGB(0, 240, 255),
-            BG = Color3.fromRGB(20, 10, 30),
-            BG2 = Color3.fromRGB(30, 18, 42),
-            BG3 = Color3.fromRGB(42, 26, 58),
-            TEXT = Color3.fromRGB(255, 230, 250),
-            TEXT2 = Color3.fromRGB(180, 140, 200),
-        },
-        ["Blood"] = {
-            ACCENT = Color3.fromRGB(220, 30, 30),
-            ACCENT2 = Color3.fromRGB(255, 100, 100),
-            BG = Color3.fromRGB(25, 10, 10),
-            BG2 = Color3.fromRGB(35, 15, 15),
-            BG3 = Color3.fromRGB(48, 22, 22),
-            TEXT = Color3.fromRGB(255, 230, 230),
-            TEXT2 = Color3.fromRGB(180, 130, 130),
-        },
-        ["Ocean"] = {
-            ACCENT = Color3.fromRGB(50, 150, 255),
-            ACCENT2 = Color3.fromRGB(120, 220, 255),
-            BG = Color3.fromRGB(10, 20, 35),
-            BG2 = Color3.fromRGB(18, 30, 50),
-            BG3 = Color3.fromRGB(28, 45, 70),
-            TEXT = Color3.fromRGB(230, 240, 255),
-            TEXT2 = Color3.fromRGB(130, 170, 220),
-        },
-        ["Gold"] = {
-            ACCENT = Color3.fromRGB(255, 200, 30),
-            ACCENT2 = Color3.fromRGB(255, 240, 120),
-            BG = Color3.fromRGB(25, 20, 10),
-            BG2 = Color3.fromRGB(38, 30, 15),
-            BG3 = Color3.fromRGB(52, 42, 22),
-            TEXT = Color3.fromRGB(255, 250, 220),
-            TEXT2 = Color3.fromRGB(190, 160, 100),
-        },
-        ["Dark"] = {
-            ACCENT = Color3.fromRGB(180, 180, 180),
-            ACCENT2 = Color3.fromRGB(230, 230, 230),
-            BG = Color3.fromRGB(14, 14, 16),
-            BG2 = Color3.fromRGB(22, 22, 25),
-            BG3 = Color3.fromRGB(32, 32, 36),
-            TEXT = Color3.fromRGB(240, 240, 240),
-            TEXT2 = Color3.fromRGB(140, 140, 145),
-        },
-    }
-
-    local function applyTheme(name)
-        restore()
-        local t = THEMES[name] or orig
-        for _, d in ipairs(gui:GetDescendants()) do
-            if d:IsA("UIStroke") then
-                if d.Color == orig.ACCENT then track(d, "Color", t.ACCENT) end
-                if d.Color == orig.ACCENT2 then track(d, "Color", t.ACCENT2) end
-            elseif d:IsA("Frame") then
-                if d.BackgroundColor3 == orig.BG then track(d, "BackgroundColor3", t.BG)
-                elseif d.BackgroundColor3 == orig.BG2 then track(d, "BackgroundColor3", t.BG2)
-                elseif d.BackgroundColor3 == orig.BG3 then track(d, "BackgroundColor3", t.BG3)
-                elseif d.BackgroundColor3 == orig.ACCENT then track(d, "BackgroundColor3", t.ACCENT)
-                elseif d.BackgroundColor3 == orig.ACCENT2 then track(d, "BackgroundColor3", t.ACCENT2) end
-            elseif d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
-                if d.TextColor3 == orig.TEXT then track(d, "TextColor3", t.TEXT)
-                elseif d.TextColor3 == orig.TEXT2 then track(d, "TextColor3", t.TEXT2)
-                elseif d.TextColor3 == orig.ACCENT then track(d, "TextColor3", t.ACCENT)
-                elseif d.TextColor3 == orig.ACCENT2 then track(d, "TextColor3", t.ACCENT2) end
-                if d.BackgroundColor3 == orig.BG3 then track(d, "BackgroundColor3", t.BG3)
-                elseif d.BackgroundColor3 == orig.ACCENT then track(d, "BackgroundColor3", t.ACCENT) end
-            elseif d:IsA("UIGradient") then
-                -- main stroke gradient
-                local kp = d.Color.Keypoints
-                if #kp == 3 and kp[1].Value == orig.ACCENT and kp[3].Value == orig.ACCENT2 then
-                    track(d, "Color", ColorSequence.new{
-                        ColorSequenceKeypoint.new(0, t.ACCENT),
-                        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(
-                            math.floor((t.ACCENT.R + t.ACCENT2.R)*127.5),
-                            math.floor((t.ACCENT.G + t.ACCENT2.G)*127.5),
-                            math.floor((t.ACCENT.B + t.ACCENT2.B)*127.5))),
-                        ColorSequenceKeypoint.new(1, t.ACCENT2),
-                    })
-                end
-            end
-        end
-        Notify("Theme", "Applied: " .. name, "success", 2)
-    end
-
-    makeSection(settingsTab, "Themes")
-    makeDropdown(settingsTab, "Theme Preset",
-        {"Default","Dark","Neon Green","Cyberpunk","Blood","Ocean","Gold"},
-        "Default", function(v) applyTheme(v) end)
-end
 
 -- ==========================================
 -- SILENT AUTO SAVE / LOAD CONFIG (FIXED HOÀN CHỈNH)
@@ -5704,10 +5943,11 @@ do
         if not writefile then return end
         local exportData = {}
         for k, v in pairs(state) do
-            if typeof(v) ~= "Instance" and type(v) ~= "function" and not tostring(k):find("Conn") then
-                exportData[tostring(k)] = serializeValue(v)
-            end
-        end
+    if k == "session" then continue end   -- không lưu session stats
+    if typeof(v) ~= "Instance" and type(v) ~= "function" and not tostring(k):find("Conn") then
+        exportData[tostring(k)] = serializeValue(v)
+    end
+end
         pcall(function()
             writefile(FILE, HttpService:JSONEncode(exportData))
         end)
@@ -5746,6 +5986,15 @@ do
                 if pBox and state.hudConfig.plPos and state.hudConfig.plSize then
                     applyTransform(pBox, state.hudConfig.plPos, state.hudConfig.plSize)
                 end
+                if statsBox and state.hudConfig.ssPos and state.hudConfig.ssSize then
+    applyTransform(statsBox, state.hudConfig.ssPos, state.hudConfig.ssSize)
+end
+if state.hudVisible then
+    if wmBox then wmBox.Visible = state.hudVisible.wm ~= false end
+    if hotkeyBox then hotkeyBox.Visible = state.hudVisible.hk ~= false end
+    if pBox then pBox.Visible = state.hudVisible.pl ~= false end
+    if statsBox then statsBox.Visible = state.hudVisible.ss ~= false end
+end
             end
             if updateHotkeyHud then pcall(updateHotkeyHud) end
         end)
