@@ -1433,67 +1433,130 @@ loadFill.Parent = loadTrack
 Instance.new("UICorner", loadFill).CornerRadius = UDim.new(1, 0)
 
 -- ==========================================
--- KHỞI TẠO KHUNG MAIN (ẨN TRÊN NÓC MÀN HÌNH)
+-- THEME PRESETS (edit here to add/change)
 -- ==========================================
--- ==========================================
--- AUTO DOWNLOAD BACKGROUND (optional)
--- ==========================================
-pcall(function()
-    -- ==========================================
-    -- BƯỚC 1: Check cache trước
-    -- ==========================================
-    local cachePaths = {"bg_drive.png", "bg_drive.jpg"}
-    for _, p in ipairs(cachePaths) do
+-- Format: { name = "Display Name", link = "Drive link", cache = "file_prefix" }
+local THEME_PRESETS = {
+    { name = "Default", link = "",                                   cache = "default" },
+    { name = "Nile BG",             link = "https://drive.google.com/file/d/1hjaDZW9wq-R4tBvlwBv5Wwr0TXatgoBS/view", cache = "nile_bg" },
+    { name = "Anime",            link = "https://drive.google.com/file/d/FILE_ID_1/view", cache = "anime_bg" },
+    { name = "Dark Abstract",    link = "https://drive.google.com/file/d/FILE_ID_2/view", cache = "dark_abs_bg" },
+    { name = "Neon City",        link = "https://drive.google.com/file/d/FILE_ID_3/view", cache = "neon_city_bg" },
+    { name = "Galaxy",           link = "https://drive.google.com/file/d/FILE_ID_4/view", cache = "galaxy_bg" },
+}
+
+-- Default preset (first one with link)
+local DEFAULT_BG_LINK = "https://drive.google.com/file/d/1hjaDZW9wq-R4tBvlwBv5Wwr0TXatgoBS/view"
+local DEFAULT_BG_NAME = "nile_bg"
+
+-- Extract FILE_ID from any Drive link format
+local function _extractDriveId(link)
+    if not link or link == "" then return nil end
+    return link:match("/file/d/([%w_-]+)")
+        or link:match("[?&]id=([%w_-]+)")
+        or link:match("/d/([%w_-]+)")
+end
+
+-- Download image from Drive, returns (url, path) or (nil, errorMsg)
+local function _downloadDriveImage(link, name)
+    name = name or "nile_bg"
+    local fileId = _extractDriveId(link)
+    if not fileId then return nil, "Invalid link" end
+    local URL = "https://drive.usercontent.google.com/download?id=" .. fileId .. "&export=download&confirm=t"
+    local http = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
+    if not (http and writefile) then return nil, "Executor missing http/writefile" end
+    local ok, res = pcall(function() return http({Url = URL, Method = "GET"}) end)
+    if not (ok and res and res.Body and #res.Body > 100) then return nil, "Download failed" end
+    if res.Body:sub(1,1) == "<" then return nil, "Drive file is private or warning page" end
+    local ext = "jpg"
+    if string.byte(res.Body,1) == 0x89 then ext = "png" end
+    local path = name .. "." .. ext
+    -- Delete old cache (both .png and .jpg)
+    for _, e in ipairs({".png", ".jpg"}) do
+        local old = name .. e
+        if isfile and isfile(old) then pcall(function() delfile(old) end) end
+    end
+    writefile(path, res.Body)
+    local url = nil
+    if getcustomasset then
+        local ok2, u = pcall(getcustomasset, path)
+        if ok2 then url = u end
+    end
+    if not url and getsynasset then
+        local ok3, u = pcall(getsynasset, path)
+        if ok3 then url = u end
+    end
+    return url, path
+end
+
+-- Load image from cache (no re-download)
+local function _loadBgFromCache(name)
+    name = name or "nile_bg"
+    for _, ext in ipairs({".png", ".jpg"}) do
+        local p = name .. ext
         if isfile and isfile(p) then
-            local ok, url = pcall(function()
-                if getcustomasset then return getcustomasset(p) end
-                if getsynasset then return getsynasset(p) end
-            end)
-            if ok and url then
-                _G.NileBgUrl = url
-                print("[BHUB] Dùng ảnh cache:", p)
-                return   -- thoát, không tải lại
+            if getcustomasset then
+                local ok, u = pcall(getcustomasset, p)
+                if ok and u then return u end
+            end
+            if getsynasset then
+                local ok, u = pcall(getsynasset, p)
+                if ok and u then return u end
             end
         end
     end
+    return nil
+end
 
-    -- ==========================================
-    -- BƯỚC 2: Chưa có cache → tải
-    -- ==========================================
-    local FILE_ID = "1hjaDZW9wq-R4tBvlwBv5Wwr0TXatgoBS"
-    local URL = "https://drive.usercontent.google.com/download?id=" .. FILE_ID .. "&export=download&confirm=t"
-    local http = http_request or request or (syn and syn.request) or (fluxus and fluxus.request)
-    if not (http and writefile) then
-        print("[BHUB] Executor thiếu http/writefile - bỏ qua tải ảnh")
-        return
+-- Read config early (get user-saved bgLink/bgName)
+pcall(function()
+    local HS = game:GetService("HttpService")
+    if readfile and isfile and isfile("BHUB_Config/bhub_ftap_state.json") then
+        local ok, decoded = pcall(function() return HS:JSONDecode(readfile("BHUB_Config/bhub_ftap_state.json")) end)
+        if ok and decoded then
+            if type(decoded.bgLink) == "string" and decoded.bgLink ~= "" then
+                _G.NileBgLink = decoded.bgLink
+            end
+            if type(decoded.bgName) == "string" and decoded.bgName ~= "" then
+                _G.NileBgName = decoded.bgName
+            end
+        end
     end
-    print("[BHUB] Chưa có cache, đang tải từ Drive...")
-    local ok, res = pcall(function() return http({Url = URL, Method = "GET"}) end)
-    if not (ok and res and res.Body and #res.Body > 100) then
-        print("[BHUB] Tải ảnh thất bại - dùng ID online mặc định")
-        return
+end)
+
+-- Run auto download/load (respect saved theme name)
+pcall(function()
+    -- If user saved a theme name, use that preset
+    local savedTheme = state.themeName
+    if not savedTheme and readfile and isfile and isfile("BHUB_Config/bhub_ftap_state.json") then
+        local HS = game:GetService("HttpService")
+        local ok, decoded = pcall(function() return HS:JSONDecode(readfile("BHUB_Config/bhub_ftap_state.json")) end)
+        if ok and decoded and type(decoded.themeName) == "string" then
+            savedTheme = decoded.themeName
+        end
     end
-    if res.Body:sub(1,1) == "<" then
-        print("[BHUB] Drive trả HTML (file private/warning) - dùng ID online")
-        return
-    end
-    local ext = "jpg"
-    if string.byte(res.Body,1) == 0x89 then ext = "png" end
-    local path = "bg_drive." .. ext
-    if isfile and isfile(path) then delfile(path) end
-    writefile(path, res.Body)
-    if getcustomasset then
-        local ok2, url = pcall(getcustomasset, path)
-        if ok2 and url then _G.NileBgUrl = url end
-    end
-    if getsynasset and not _G.NileBgUrl then
-        local ok3, url = pcall(getsynasset, path)
-        if ok3 and url then _G.NileBgUrl = url end
-    end
-    if _G.NileBgUrl then
-        print("[BHUB] Background downloaded + cached:", path)
+
+    if savedTheme and _getPresetByName(savedTheme) then
+        local ok = applyThemePreset(savedTheme)
+        print("[BHUB] Loaded saved theme:", savedTheme, ok and "OK" or "FAIL")
     else
-        print("[BHUB] Executor không hỗ trợ getcustomasset/getsynasset")
+        -- Fallback to default bg
+        local bgName = _G.NileBgName or DEFAULT_BG_NAME
+        local bgLink = _G.NileBgLink or DEFAULT_BG_LINK
+        local cached = _loadBgFromCache(bgName)
+        if cached then
+            _G.NileBgUrl = cached
+            print("[BHUB] Using cached background:", bgName)
+            return
+        end
+        print("[BHUB] No cache, downloading:", bgName)
+        local url, path = _downloadDriveImage(bgLink, bgName)
+        if url then
+            _G.NileBgUrl = url
+            print("[BHUB] Background ready:", path)
+        else
+            print("[BHUB] Download failed:", path)
+        end
     end
 end)
 local main = Instance.new("Frame")
@@ -1510,7 +1573,7 @@ main.Parent = gui
 local mainCorner = Instance.new("UICorner", main)
 mainCorner.CornerRadius = UDim.new(0, 8)
 
-local mainStroke = Instance.new("UIStroke", main)
+mainStroke = Instance.new("UIStroke", main)
 mainStroke.Thickness = 1
 mainStroke.Color = Color3.fromRGB(255, 255, 255)
 mainStroke.Transparency = 0.93
@@ -1519,12 +1582,20 @@ mainStroke.Transparency = 0.93
 -- ==========================================
 main.BackgroundTransparency = 1
 
-local bgImage = Instance.new("ImageLabel")
+bgImage = Instance.new("ImageLabel")
 bgImage.Name = "CustomBackground"
 bgImage.Size = UDim2.fromScale(1, 1)
 bgImage.Position = UDim2.fromScale(0, 0)
 bgImage.BackgroundTransparency = 1
 bgImage.Image = _G.NileBgUrl or "rbxassetid://132880483631327"
+-- Apply saved theme (if any) now that bgImage exists
+task.defer(function()
+    local savedTheme = state.themeName
+    if savedTheme and _getPresetByName(savedTheme) then
+        pcall(applyThemePreset, savedTheme)
+        print("[BHUB] Applied saved theme:", savedTheme)
+    end
+end)
 bgImage.ScaleType = Enum.ScaleType.Crop
 bgImage.ZIndex = 0                    -- DƯỚI TẤT CẢ
 bgImage.Parent = main
@@ -2919,7 +2990,7 @@ end)
 -- ==========================================
 -- WATERMARK + HOTKEY + PLAYER LIST (RESIZABLE HUD)
 -- ==========================================
-local wmGui = Instance.new("ScreenGui")
+wmGui = Instance.new("ScreenGui")
 wmGui.Name = "BHUB_HUD"
 wmGui.ResetOnSpawn = false
 wmGui.IgnoreGuiInset = true
@@ -2951,18 +3022,18 @@ function state.session.reset()
     state.session.breaks, state.session.steals, state.session.deaths = 0, 0, 0
 end
 
-local function applyTransform(inst, posData, sizeData)
+function applyTransform(inst, posData, sizeData)
     if posData then inst.Position = UDim2.new(posData[1], posData[2], posData[3], posData[4]) end
     if sizeData then inst.Size = UDim2.new(sizeData[1], sizeData[2], sizeData[3], sizeData[4]) end
 end
 
-local function packUDim2(u)
+function packUDim2(u)
     return {u.X.Scale, u.X.Offset, u.Y.Scale, u.Y.Offset}
 end
 -- ==========================================
 -- SNOW EFFECT (không ảnh, dùng Frame)
 -- ==========================================
-local function createSnowEffect(parent, density)
+function createSnowEffect(parent, density)
     density = density or 12
     local layer = Instance.new("Frame")
     layer.Name = "SnowLayer"
@@ -3006,7 +3077,7 @@ local function createSnowEffect(parent, density)
     end
 end
 
-local function makeResizableHudBox(name, defaultPos, defaultSize)
+function makeResizableHudBox(name, defaultPos, defaultSize)
     local f = Instance.new("Frame")
     f.Name = name
     f.BackgroundColor3 = Color3.fromRGB(10, 10, 14)
@@ -3171,7 +3242,7 @@ local hkLayout = Instance.new("UIListLayout", hkScroll)
 hkLayout.Padding = UDim.new(0, 3)
 
 local hotkeyRows = {}
-local function updateHotkeyHud()
+function updateHotkeyHud()
     for _, r in pairs(hotkeyRows) do r:Destroy() end
     hotkeyRows = {}
 
@@ -3254,7 +3325,7 @@ pScroll.Parent = pBox
 local pListLayout = Instance.new("UIListLayout", pScroll)
 pListLayout.Padding = UDim.new(0, 4)
 
-local function refreshPlayerListHud()
+function refreshPlayerListHud()
     for _, c in ipairs(pScroll:GetChildren()) do
         if c:IsA("GuiObject") then c:Destroy() end
     end
@@ -3353,7 +3424,7 @@ ssLayout.CellSize = UDim2.new(0.5, -3, 0, 18)
 ssLayout.CellPadding = UDim2.new(0, 6, 0, 4)
 ssLayout.SortOrder = Enum.SortOrder.LayoutOrder
 
-local function ssCell(order, color)
+function ssCell(order, color)
     local f = Instance.new("Frame")
     f.BackgroundTransparency = 1
     f.LayoutOrder = order
@@ -3527,6 +3598,137 @@ makeButton(settingsTab, "Move, Rescale Watermark HUD", function()
 end)                                    -- ← end) đóng makeButton, ĐẶT TRƯỚC
 
 makeSection(settingsTab, "HUD Visibility")
+-- ==========================================
+-- THEME (Background via Drive Link)
+-- ==========================================
+makeSection(settingsTab, "Theme")
+
+local bgInfoLabel = Instance.new("TextLabel")
+-- Build theme name list
+local themeNames = {}
+for _, p in ipairs(THEME_PRESETS) do
+    table.insert(themeNames, p.name)
+end
+
+local currentTheme = state.themeName or themeNames[1]
+
+makeDropdown(settingsTab, "Theme Preset", themeNames, currentTheme, function(v)
+    state.themeName = v
+    Notify("Theme", "Loading theme: " .. v, "info", 1.5)
+    task.spawn(function()
+        local ok, err = applyThemePreset(v)
+        if ok then
+            Notify("Theme", "Applied: " .. v, "success", 2)
+        else
+            Notify("Theme", "Failed: " .. tostring(err), "kick", 3)
+        end
+    end)
+end)
+bgInfoLabel.Size = UDim2.new(1, 0, 0, 36)
+bgInfoLabel.BackgroundColor3 = BG3
+bgInfoLabel.TextColor3 = TEXT2
+bgInfoLabel.Font = Enum.Font.Gotham
+bgInfoLabel.TextSize = 11
+bgInfoLabel.TextWrapped = true
+bgInfoLabel.Text = "Current background: " .. (_G.NileBgName or DEFAULT_BG_NAME)
+bgInfoLabel.Parent = settingsTab
+Instance.new("UICorner", bgInfoLabel).CornerRadius = UDim.new(0, 6)
+
+makeInput(settingsTab, "Google Drive Link", _G.NileBgLink or DEFAULT_BG_LINK, function(v)
+    state.bgLink = v
+end)
+
+makeInput(settingsTab, "Background Name (cache)", _G.NileBgName or DEFAULT_BG_NAME, function(v)
+    state.bgName = v
+end)
+
+-- Sync state initially so config saves
+state.bgLink = state.bgLink or _G.NileBgLink or DEFAULT_BG_LINK
+state.bgName = state.bgName or _G.NileBgName or DEFAULT_BG_NAME
+
+makeButton(settingsTab, "Apply Background (download + change now)", function()
+    task.spawn(function()
+        local link = state.bgLink
+        local name = state.bgName or DEFAULT_BG_NAME
+        if not link or link == "" then
+            Notify("Theme", "Enter a Google Drive link first", "warning", 2)
+            return
+        end
+        Notify("Theme", "Downloading image...", "info", 2)
+        local url, path = _downloadDriveImage(link, name)
+        if url then
+            _G.NileBgUrl = url
+            _G.NileBgLink = link
+            _G.NileBgName = name
+            if bgImage and bgImage.Parent then
+                bgImage.Image = url
+            end
+            bgInfoLabel.Text = "Current background: " .. name
+            Notify("Theme", "Background changed: " .. name, "success", 3)
+        else
+            Notify("Theme", "Error: " .. (path or "unknown"), "kick", 3)
+        end
+    end)
+end)
+
+makeButton(settingsTab, "Load From Cache (no re-download)", function()
+    local name = state.bgName or DEFAULT_BG_NAME
+    local url = _loadBgFromCache(name)
+    if url then
+        _G.NileBgUrl = url
+        if bgImage and bgImage.Parent then
+            bgImage.Image = url
+        end
+        Notify("Theme", "Loaded from cache: " .. name, "success", 2)
+    else
+        Notify("Theme", "No cache for: " .. name, "warning", 2)
+    end
+end)
+
+makeButton(settingsTab, "Clear Current Background Cache", function()
+    local name = state.bgName or DEFAULT_BG_NAME
+    for _, e in ipairs({".png", ".jpg"}) do
+        local p = name .. e
+        pcall(function() if isfile and isfile(p) then delfile(p) end end)
+    end
+    Notify("Theme", "Cache cleared: " .. name, "info", 2)
+end)
+
+makeButton(settingsTab, "Reset to Default Background", function()
+makeButton(settingsTab, "Refresh Current Theme (re-download)", function()
+    local name = state.themeName
+    if not name then
+        Notify("Theme", "No theme selected", "warning", 2)
+        return
+    end
+    -- Clear cache first
+    local preset = _getPresetByName(name)
+    if preset then
+        for _, e in ipairs({".png", ".jpg"}) do
+            local p = preset.cache .. e
+            pcall(function() if isfile and isfile(p) then delfile(p) end end)
+        end
+    end
+    task.spawn(function()
+        local ok, err = applyThemePreset(name)
+        if ok then
+            Notify("Theme", "Refreshed: " .. name, "success", 2)
+        else
+            Notify("Theme", "Failed: " .. tostring(err), "kick", 3)
+        end
+    end)
+end)
+
+    state.bgLink = DEFAULT_BG_LINK
+    state.bgName = DEFAULT_BG_NAME
+    _G.NileBgLink = DEFAULT_BG_LINK
+    _G.NileBgName = DEFAULT_BG_NAME
+    if bgImage and bgImage.Parent then
+        bgImage.Image = "rbxassetid://132880483631327"
+    end
+    bgInfoLabel.Text = "Current background: default (Roblox ID)"
+    Notify("Theme", "Reset to default background", "info", 2)
+end)
 state.snowEnabled = true
 
 makeToggle(settingsTab, "Snow Effect on HUD", true, function(on)
