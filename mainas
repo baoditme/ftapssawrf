@@ -1,12 +1,12 @@
--- ==========================================
--- NILE v3.0 COMBINED HUB
--- 3D GUI / Faster Cursor / 13 Tabs
--- Base: ==== / Galaxy (identical)
--- ==========================================
-
--- Theo dõi mọi connection để nút X ngắt hết
+      ====== ==  == ==  == ======
+     ==  == ==  == ==  == ==  ==
+    ==  == ==  == ==  == ==  ==
+   ====== ====== ==  == ======
+  ==  == ==  == ==  == ==  ==
+ ==  == ==  == ==  == ==  ==
+====== ==  == ====== ======
 local _conns = {}
-local function proxyService(real)
+function proxyService(real)
     return setmetatable({}, {
         __index = function(_, k)
             local v = real[k]
@@ -58,6 +58,25 @@ end
  isHeld = localPlayer:WaitForChild("IsHeld", 10)
  toysFolder = workspace_:WaitForChild(localPlayer.Name .. "SpawnedInToys", 10)
 
+-- Hàm lưu tức thì (Debounce 0.5s để không lag khi kéo slider)
+local _isSaving = false
+local _savePending = false
+function _G.QueueSave()
+    if not _G.saveConfig then return end
+    if _isSaving then
+        _savePending = true
+        return
+    end
+    _isSaving = true
+    task.delay(0.5, function()
+        if _G.saveConfig then _G.saveConfig() end
+        _isSaving = false
+        if _savePending then
+            _savePending = false
+            _G.QueueSave()
+        end
+    end)
+end
 -- STATE
 local state = {
     kickExcludeFriends = true,
@@ -127,7 +146,7 @@ notifyContainer.Parent = notifyGui
 local activeNotifs = {}
 local NOTIF_HEIGHT, NOTIF_GAP = 68, 8
 
-local function Notify(title, desc, ntype, duration)
+function Notify(title, desc, ntype, duration)
     ntype = ntype or "info"
     if state.muteNotif and state.muteNotif[ntype] then return end
     duration = duration or 3.5
@@ -229,7 +248,7 @@ end
 -- ==========================================
 -- HELPERS (verbatim from ====)
 -- ==========================================
-local function GetPlot()
+function GetPlot()
     if not workspace_.PlotItems.PlayersInPlots:FindFirstChild(localPlayer.Name) then return false end
     for _, plot in workspace_.Plots:GetChildren() do
         local thisPlotsOwners = plot:FindFirstChild("PlotSign"):FindFirstChild("ThisPlotsOwners")
@@ -244,7 +263,7 @@ local function GetPlot()
     return false
 end
 
-local function NewToy(name, cf)
+function NewToy(name, cf)
     if not name or not cf then return nil end
     repeat task.wait() until localPlayer.CanSpawnToy.Value
     local startTick = tick()
@@ -265,11 +284,11 @@ local function NewToy(name, cf)
     return spawned
 end
 
-local function DestroyT(toy)
+function DestroyT(toy)
     if toy then pcall(function() destroyToyRemote:FireServer(toy) end) end
 end
 
-local function Ownerboat(part)
+function Ownerboat(part)
     if not part then return nil end
     setNetworkOwner:FireServer(part, part.CFrame)
     local po = part:FindFirstChild("PartOwner")
@@ -277,11 +296,11 @@ local function Ownerboat(part)
     return nil
 end
 
-local function UnGrab(part)
+function UnGrab(part)
     if part then pcall(function() destroyGrabLine:FireServer(part) end) end
 end
 
-local function Teleport(part, target, offset)
+function Teleport(part, target, offset)
     if part and target and offset then
         part.CFrame = target * offset
         part.Velocity = Vector3.zero
@@ -289,13 +308,13 @@ local function Teleport(part, target, offset)
     end
 end
 
-local function GetHRH(char)
+function GetHRH(char)
     if char then
         return char:FindFirstChild("Head"), char:FindFirstChild("HumanoidRootPart"), char:FindFirstChild("Humanoid")
     end
 end
 
-local function SpawnShuriken(name)
+function SpawnShuriken(name)
     local char = localPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return nil end
@@ -329,7 +348,7 @@ end
 -- ==========================================
 -- SERVER FUNCTIONS (from ====, preserved)
 -- ==========================================
-local function Flood()
+function Flood()
     Notify("Flood", "Preparing Tsunami...", "warning", 3)
     task.spawn(function()
         local tsunamiList = {}
@@ -390,7 +409,7 @@ local function Flood()
     end)
 end
 
-local function StartLineLag()
+function StartLineLag()
     if state.lineLagRunning then return end
     state.lineLagRunning = true
     task.spawn(function()
@@ -404,12 +423,12 @@ local function StartLineLag()
     end)
 end
 
-local function StopLineLag()
+function StopLineLag()
     state.lineLagRunning = false
     pcall(function() createGrabLine:FireServer() end)
 end
 
-local function StartCrazyLine(interval)
+function StartCrazyLine(interval)
     if state.crazyLineRunning then return end
     state.crazyLineRunning = true
     task.spawn(function()
@@ -427,12 +446,12 @@ local function StartCrazyLine(interval)
     end)
 end
 
-local function StopCrazyLine()
+function StopCrazyLine()
     state.crazyLineRunning = false
     pcall(function() createGrabLine:FireServer() end)
 end
 
-local function StartPacketLag()
+function StartPacketLag()
     if state.packetLagRunning then return end
     state.packetLagRunning = true
     task.spawn(function()
@@ -443,13 +462,13 @@ local function StartPacketLag()
     end)
 end
 
-local function StopPacketLag() state.packetLagRunning = false end
+function StopPacketLag() state.packetLagRunning = false end
 
-local function SendOnePacket()
+function SendOnePacket()
     pcall(function() extendGrabLine:FireServer(string.rep(state.packetText, state.packetAmount)) end)
 end
 
-local function StickAll()
+function StickAll()
     task.spawn(function()
         for _, toy in toysFolder:GetChildren() do
             if toy.Name == "ShurikensToKeep" or toy.Name == "NinjaShuriken" then
@@ -470,7 +489,7 @@ local function StickAll()
     Notify("Stick All", "All shurikens stuck - server lagging", "warning", 3)
 end
 
-local function BreakObject(objectName)
+function BreakObject(objectName)
     task.spawn(function()
         local mapObjects = workspace_.Map.AlwaysHereTweenedObjects
         local sel = mapObjects:FindFirstChild(objectName)
@@ -521,7 +540,7 @@ Notify("Break Object", "Broke " .. objectName, "success", 3)
     end)
 end
 
-local function BreakBarrier()
+function BreakBarrier()
     task.spawn(function()
         local char = localPlayer.Character
         local _, hrp, hum = GetHRH(char)
@@ -566,7 +585,7 @@ local function BreakBarrier()
     end)
 end
 
-local function BreakPlot(plotNum)
+function BreakPlot(plotNum)
     task.spawn(function()
         local char = localPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -598,7 +617,7 @@ Notify("Break Plot", "Plot " .. plotNum .. " broken", "success", 3)
 end
 
 -- LOOP ALL NO BLOB
-local function LoopAllNoBlobman()
+function LoopAllNoBlobman()
     task.spawn(function()
         local char = localPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -636,7 +655,7 @@ local function LoopAllNoBlobman()
 end
 
 -- LOOP ALL BLOB
-local function LoopAllBlobman()
+function LoopAllBlobman()
     task.spawn(function()
         while state.loopBlobRunning do
             for _, p in players:GetPlayers() do
@@ -692,7 +711,7 @@ end
 -- ==========================================
 -- ISINPLOT (bắt buộc — bản gốc dùng hàm này)
 -- ==========================================
-local function IsInPlot(player)
+function IsInPlot(player)
     if not player then return false end
     local ip = player:FindFirstChild("InPlot")
     return ip and ip:IsA("BoolValue") and ip.Value or false
@@ -704,7 +723,7 @@ end
 -- ==========================================
 local noBlobRunning = false
 
-local function ExecuteNoBlobKick()
+function ExecuteNoBlobKick()
     if noBlobRunning then return end
     noBlobRunning = true
     -- [Đã bỏ đúng 1 dòng: sendChat("why u bylleh me😭")]
@@ -792,7 +811,7 @@ end
 -- ==========================================
 -- KICK ALL (Blobman) — giữ nguyên
 -- ==========================================
-local function KickAll()
+function KickAll()
     task.spawn(function()
         local char = localPlayer.Character
         local hum = char and char:FindFirstChild("Humanoid")
@@ -891,7 +910,7 @@ state.session.track_kill(#targets)
 Notify("Kick All", "Server wiped", "success", 4)
     end)
 end
-local function StealHoldables(targetName, mode)
+function StealHoldables(targetName, mode)
     task.spawn(function()
         local folders = {}
         if targetName == "all" then
@@ -946,7 +965,7 @@ end
     end)
 end
 
-local function BananaAll()
+function BananaAll()
     task.spawn(function()
         local char = localPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -993,7 +1012,7 @@ local function BananaAll()
     end)
 end
 
-local function AutoExplodeToggle(on)
+function AutoExplodeToggle(on)
     task.spawn(function()
         while on() do
             local char = localPlayer.Character
@@ -1050,7 +1069,7 @@ local function AutoExplodeToggle(on)
     end)
 end
 
-local function DeleteTrain()
+function DeleteTrain()
     task.spawn(function()
         local mapObj = workspace_.Map.AlwaysHereTweenedObjects.Train.Object
         local objModel = mapObj and mapObj:FindFirstChild("ObjectModel")
@@ -1091,7 +1110,7 @@ local function DeleteTrain()
     end)
 end
 
-local function Rejoin()
+function Rejoin()
     if #players:GetPlayers() <= 1 then
         localPlayer:Kick()
         task.wait(0.25)
@@ -1101,7 +1120,7 @@ local function Rejoin()
     end
 end
 
-local function FindCheaters()
+function FindCheaters()
     for _, p in players:GetPlayers() do
         if p ~= localPlayer then
             local folder = workspace_:FindFirstChild(p.Name .. "SpawnedInToys")
@@ -1118,7 +1137,7 @@ local function FindCheaters()
     end
 end
 
-local function SoundSpam(on)
+function SoundSpam(on)
     task.spawn(function()
         local sounds = {"oi","mommy","daddy","lick","ew","haha","yay","oof","hmm","ree","tehe","kick","ahh","monkey","ooo","grr","nom","one","two","three","four","five","fly","shh","pew","hold","soda","yeehaw","cough","ahem","cry","uwu","mountain"}
         while on() do
@@ -1132,7 +1151,7 @@ local function SoundSpam(on)
 end
 
 -- ANTI FEATURES
-local function ToggleAntiGrab(on)
+function ToggleAntiGrab(on)
     task.spawn(function()
         while on() do
             task.wait(0.05)
@@ -1151,7 +1170,7 @@ local function ToggleAntiGrab(on)
     end)
 end
 
-local function ToggleAntiLag(on)
+function ToggleAntiLag(on)
     local ps = localPlayer:FindFirstChild("PlayerScripts")
     local cbm = ps and ps:FindFirstChild("CharacterAndBeamMove")
     local spt = ps and ps:FindFirstChild("StickyPartsTouchDetection")
@@ -1174,7 +1193,7 @@ end
 -- ==========================================
 -- EXTRA FUNCTIONS (selected from other hubs)
 -- ==========================================
-local function ToggleAntiVoid(on)
+function ToggleAntiVoid(on)
     state.antiVoid = on
     workspace_.FallenPartsDestroyHeight = on and (0 / 0) or -100
     task.spawn(function()
@@ -1190,7 +1209,7 @@ local function ToggleAntiVoid(on)
     end)
 end
 
-local function ToggleAntiBlobman(on)
+function ToggleAntiBlobman(on)
     task.spawn(function()
         while on() do
             task.wait(0.5)
@@ -1208,7 +1227,7 @@ local function ToggleAntiBlobman(on)
     end)
 end
 
-local function ToggleFly(on)
+function ToggleFly(on)
     state.flyEnabled = on
     task.spawn(function()
         local bv, bg
@@ -1240,7 +1259,7 @@ local function ToggleFly(on)
     end)
 end
 
-local function ToggleNoclip(on)
+function ToggleNoclip(on)
     task.spawn(function()
         while on() do
             task.wait()
@@ -1433,24 +1452,70 @@ loadFill.Parent = loadTrack
 Instance.new("UICorner", loadFill).CornerRadius = UDim.new(1, 0)
 
 -- ==========================================
--- THEME PRESETS (edit here to add/change)
+-- THEME PRESETS (7 themes with custom colors)
 -- ==========================================
--- Format: { name = "Display Name", link = "Drive link", cache = "file_prefix" }
 local THEME_PRESETS = {
-    { name = "Default", link = "",                                   cache = "default" },
-    { name = "Nile BG",             link = "https://drive.google.com/file/d/1hjaDZW9wq-R4tBvlwBv5Wwr0TXatgoBS/view", cache = "nile_bg" },
-    { name = "Anime",            link = "https://drive.google.com/file/d/FILE_ID_1/view", cache = "anime_bg" },
-    { name = "Dark Abstract",    link = "https://drive.google.com/file/d/FILE_ID_2/view", cache = "dark_abs_bg" },
-    { name = "Neon City",        link = "https://drive.google.com/file/d/FILE_ID_3/view", cache = "neon_city_bg" },
-    { name = "Galaxy",           link = "https://drive.google.com/file/d/FILE_ID_4/view", cache = "galaxy_bg" },
+    { name = "Default",       link = "", cache = "default" },
+    { name = "Star",          link = "https://drive.google.com/file/d/1fGixp43mpShn_A9fad4E_tBsuCqcaxcj/view", cache = "star" },
+    { name = "Anime Girl",    link = "https://drive.google.com/file/d/1tcyFZ5puQ92phwBKi5f54nkczkxC9pS0/view", cache = "anime_girl" },
+    { name = "Cat",           link = "https://drive.google.com/file/d/1csENv8fFMMpRpFLOl6QhhHY6Owke8RaK/view", cache = "cat" },
+    { name = "minecraft cat",  link = "https://drive.google.com/file/d/1Yh8vXSF31KeciRfCCMfol-GFNm3nb_Sj/view", cache = "anime_girl_2" },
+    { name = "Sky 1",         link = "https://drive.google.com/file/d/1dGknYMZ9geHWhMQNhqr5Oj3ne4-Nx_EK/view", cache = "sky_1" },
+    { name = "Sky 2",         link = "https://drive.google.com/file/d/1OfQmSJXF8mGjA6GWHNUBB2b1AgJKeDQS/view", cache = "sky_2" },
+    { name = "Forest",        link = "https://drive.google.com/file/d/1elK_RbGfBjURbShWdnyUT0wxdQhgtc13/view", cache = "forest" },
 }
 
--- Default preset (first one with link)
-local DEFAULT_BG_LINK = "https://drive.google.com/file/d/1hjaDZW9wq-R4tBvlwBv5Wwr0TXatgoBS/view"
-local DEFAULT_BG_NAME = "nile_bg"
+-- ==========================================
+-- THEME COLOR PALETTES (per preset)
+-- ==========================================
+local THEME_COLORS = {
+    ["Default"] = {
+        ACCENT = Color3.fromRGB(115, 95, 245),  ACCENT2 = Color3.fromRGB(90, 200, 255),
+        BG = Color3.fromRGB(15, 15, 18),        BG2 = Color3.fromRGB(22, 22, 27),       BG3 = Color3.fromRGB(28, 28, 35),
+        TEXT = Color3.fromRGB(240, 240, 245),   TEXT2 = Color3.fromRGB(140, 140, 155),
+    },
+    ["Star"] = {  -- tím đậm (deep purple)
+        ACCENT = Color3.fromRGB(140, 60, 220),  ACCENT2 = Color3.fromRGB(200, 140, 255),
+        BG = Color3.fromRGB(16, 8, 26),         BG2 = Color3.fromRGB(26, 14, 42),       BG3 = Color3.fromRGB(40, 22, 60),
+        TEXT = Color3.fromRGB(245, 235, 255),   TEXT2 = Color3.fromRGB(170, 145, 205),
+    },
+    ["Anime Girl"] = {  -- xanh đậm (dark blue)
+        ACCENT = Color3.fromRGB(50, 100, 220),  ACCENT2 = Color3.fromRGB(120, 190, 255),
+        BG = Color3.fromRGB(10, 15, 30),        BG2 = Color3.fromRGB(18, 26, 48),       BG3 = Color3.fromRGB(28, 42, 72),
+        TEXT = Color3.fromRGB(235, 242, 255),   TEXT2 = Color3.fromRGB(140, 168, 205),
+    },
+    ["Cat"] = {  -- xanh nhạt (light blue)
+        ACCENT = Color3.fromRGB(120, 210, 240), ACCENT2 = Color3.fromRGB(200, 240, 255),
+        BG = Color3.fromRGB(15, 22, 32),        BG2 = Color3.fromRGB(24, 34, 48),       BG3 = Color3.fromRGB(34, 48, 65),
+        TEXT = Color3.fromRGB(245, 250, 255),   TEXT2 = Color3.fromRGB(155, 185, 205),
+    },
+    ["Anime Girl 2"] = {  -- trắng (white)
+        ACCENT = Color3.fromRGB(235, 235, 245), ACCENT2 = Color3.fromRGB(200, 200, 220),
+        BG = Color3.fromRGB(20, 20, 25),        BG2 = Color3.fromRGB(30, 30, 40),       BG3 = Color3.fromRGB(45, 45, 58),
+        TEXT = Color3.fromRGB(250, 250, 255),   TEXT2 = Color3.fromRGB(175, 175, 195),
+    },
+    ["Sky 1"] = {  -- tím (purple)
+        ACCENT = Color3.fromRGB(130, 90, 220),  ACCENT2 = Color3.fromRGB(190, 150, 255),
+        BG = Color3.fromRGB(18, 12, 30),        BG2 = Color3.fromRGB(28, 20, 45),       BG3 = Color3.fromRGB(42, 30, 62),
+        TEXT = Color3.fromRGB(242, 235, 255),   TEXT2 = Color3.fromRGB(168, 152, 198),
+    },
+    ["Sky 2"] = {  -- tím (purple)
+        ACCENT = Color3.fromRGB(130, 90, 220),  ACCENT2 = Color3.fromRGB(190, 150, 255),
+        BG = Color3.fromRGB(18, 12, 30),        BG2 = Color3.fromRGB(28, 20, 45),       BG3 = Color3.fromRGB(42, 30, 62),
+        TEXT = Color3.fromRGB(242, 235, 255),   TEXT2 = Color3.fromRGB(168, 152, 198),
+    },
+    ["Forest"] = {  -- tím (purple)
+        ACCENT = Color3.fromRGB(130, 90, 220),  ACCENT2 = Color3.fromRGB(190, 150, 255),
+        BG = Color3.fromRGB(18, 12, 30),        BG2 = Color3.fromRGB(28, 20, 45),       BG3 = Color3.fromRGB(42, 30, 62),
+        TEXT = Color3.fromRGB(242, 235, 255),   TEXT2 = Color3.fromRGB(168, 152, 198),
+    },
+}
+
+local DEFAULT_BG_LINK = ""
+local DEFAULT_BG_NAME = "default"
 
 -- Extract FILE_ID from any Drive link format
-local function _extractDriveId(link)
+function _extractDriveId(link)
     if not link or link == "" then return nil end
     return link:match("/file/d/([%w_-]+)")
         or link:match("[?&]id=([%w_-]+)")
@@ -1458,7 +1523,7 @@ local function _extractDriveId(link)
 end
 
 -- Download image from Drive, returns (url, path) or (nil, errorMsg)
-local function _downloadDriveImage(link, name)
+function _downloadDriveImage(link, name)
     name = name or "nile_bg"
     local fileId = _extractDriveId(link)
     if not fileId then return nil, "Invalid link" end
@@ -1490,7 +1555,7 @@ local function _downloadDriveImage(link, name)
 end
 
 -- Load image from cache (no re-download)
-local function _loadBgFromCache(name)
+function _loadBgFromCache(name)
     name = name or "nile_bg"
     for _, ext in ipairs({".png", ".jpg"}) do
         local p = name .. ext
@@ -1506,6 +1571,127 @@ local function _loadBgFromCache(name)
         end
     end
     return nil
+end
+
+-- ==========================================
+-- THEME COLOR TRACKING
+-- ==========================================
+local _themeTracked = {}
+
+function _captureOrigPalette()
+    return {
+        ACCENT = C_ACCENT, ACCENT2 = Color3.fromRGB(90, 200, 255),
+        BG = C_BG, BG2 = C_PANEL, BG3 = C_ELEM,
+        TEXT = C_TEXT, TEXT2 = C_MUTED,
+    }
+end
+
+function _applyThemeColors(themeName)
+    local orig = _captureOrigPalette()
+    local t = THEME_COLORS[themeName] or THEME_COLORS["Default"]
+
+    -- Restore previous tracked elements to orig
+    for inst, props in pairs(_themeTracked) do
+        for prop, origVal in pairs(props) do
+            pcall(function() inst[prop] = origVal end)
+        end
+    end
+    _themeTracked = {}
+
+    function track(inst, prop, val)
+        if not _themeTracked[inst] then _themeTracked[inst] = {} end
+        if _themeTracked[inst][prop] == nil then
+            _themeTracked[inst][prop] = inst[prop]
+        end
+        inst[prop] = val
+    end
+
+    for _, d in ipairs(gui:GetDescendants()) do
+        if d.Name == "CustomBackground" or d.Name == "BackgroundTint" then
+            -- skip: bgImage / bgTint giữ nguyên
+        elseif d:IsA("UIStroke") then
+            if d.Color == orig.ACCENT then track(d, "Color", t.ACCENT)
+            elseif d.Color == orig.ACCENT2 then track(d, "Color", t.ACCENT2) end
+        elseif d:IsA("Frame") or d:IsA("TextButton") or d:IsA("ScrollingFrame") then
+            if d.BackgroundColor3 == orig.BG then track(d, "BackgroundColor3", t.BG)
+            elseif d.BackgroundColor3 == orig.BG2 then track(d, "BackgroundColor3", t.BG2)
+            elseif d.BackgroundColor3 == orig.BG3 then track(d, "BackgroundColor3", t.BG3)
+            elseif d.BackgroundColor3 == orig.ACCENT then track(d, "BackgroundColor3", t.ACCENT)
+            elseif d.BackgroundColor3 == orig.ACCENT2 then track(d, "BackgroundColor3", t.ACCENT2) end
+        end
+        if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+            if d.TextColor3 == orig.TEXT then track(d, "TextColor3", t.TEXT)
+            elseif d.TextColor3 == orig.TEXT2 then track(d, "TextColor3", t.TEXT2)
+            elseif d.TextColor3 == orig.ACCENT then track(d, "TextColor3", t.ACCENT)
+            elseif d.TextColor3 == orig.ACCENT2 then track(d, "TextColor3", t.ACCENT2) end
+            if d.BackgroundColor3 == orig.BG3 then track(d, "BackgroundColor3", t.BG3)
+            elseif d.BackgroundColor3 == orig.ACCENT then track(d, "BackgroundColor3", t.ACCENT) end
+        end
+    end
+end
+
+_G.NileApplyThemeColors = _applyThemeColors
+
+-- ==========================================
+-- PRESET HELPERS
+-- ==========================================
+function _getPresetByName(name)
+    for _, p in ipairs(THEME_PRESETS) do
+        if p.name == name then return p end
+    end
+    return nil
+end
+
+function applyThemePreset(presetName)
+    local preset = _getPresetByName(presetName)
+    if not preset then return false, "Theme not found" end
+
+    -- Apply color scheme immediately
+    _applyThemeColors(presetName)
+
+    -- Default: no image (Roblox ID)
+    if preset.link == "" then
+        _G.NileBgUrl = nil
+        _G.NileBgLink = ""
+        _G.NileBgName = preset.cache
+        state.bgLink = ""
+        state.bgName = preset.cache
+        state.themeName = presetName
+        if bgImage and bgImage.Parent then
+            bgImage.Image = "rbxassetid://132880483631327"
+        end
+        return true
+    end
+
+    -- Try cache first
+    local cached = _loadBgFromCache(preset.cache)
+    if cached then
+        _G.NileBgUrl = cached
+        _G.NileBgLink = preset.link
+        _G.NileBgName = preset.cache
+        state.bgLink = preset.link
+        state.bgName = preset.cache
+        state.themeName = presetName
+        if bgImage and bgImage.Parent then
+            bgImage.Image = cached
+        end
+        return true
+    end
+
+    -- Download fresh
+    local url, path = _downloadDriveImage(preset.link, preset.cache)
+    if not url then return false, path or "Download failed" end
+
+    _G.NileBgUrl = url
+    _G.NileBgLink = preset.link
+    _G.NileBgName = preset.cache
+    state.bgLink = preset.link
+    state.bgName = preset.cache
+    state.themeName = presetName
+    if bgImage and bgImage.Parent then
+        bgImage.Image = url
+    end
+    return true
 end
 
 -- Read config early (get user-saved bgLink/bgName)
@@ -1752,7 +1938,7 @@ sidebarPad.Parent = sidebar
 -- ==========================================
 -- NÚT ĐIỀU KHIỂN CỬA SỔ (- VÀ X)
 -- ==========================================
-local function makeCtrlBtn(text, xOffset, cb, danger)
+function makeCtrlBtn(text, xOffset, cb, danger)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(0, 26, 0, 26)
     btn.Position = UDim2.new(1, xOffset, 0, 8)
@@ -1854,7 +2040,7 @@ end)
 local pages = {}
 local tabBtns = {}
 
-local function createTab(name, order)
+function createTab(name, order)
     local page = Instance.new("ScrollingFrame")
     page.Size = UDim2.new(1, -16, 1, -16)
     page.Position = UDim2.new(0, 8, 0, 8)
@@ -1926,7 +2112,7 @@ local function createTab(name, order)
     return page
 end
 
-local function makeSection(parent, title)
+function makeSection(parent, title)
     local sec = Instance.new("Frame")
     sec.Size = UDim2.new(1, 0, 0, 24)
     sec.BackgroundTransparency = 1
@@ -1944,7 +2130,7 @@ local function makeSection(parent, title)
     return sec
 end
 
-local function makeButton(parent, text, cb, danger)
+function makeButton(parent, text, cb, danger)
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0, 32)
     btn.BackgroundColor3 = danger and Color3.fromRGB(45, 25, 30) or C_ELEM
@@ -1982,7 +2168,7 @@ local function makeButton(parent, text, cb, danger)
     return btn
 end
 
-local function makeToggle(parent, text, default, cb)
+function makeToggle(parent, text, default, cb)
     local on = default or false
     local btn = Instance.new("TextButton")
     btn.Size = UDim2.new(1, 0, 0, 32)
@@ -2030,27 +2216,18 @@ local function makeToggle(parent, text, default, cb)
         tweenService:Create(pill, TweenInfo.new(0.2, Enum.EasingStyle.Quart), { BackgroundColor3 = targetColor }):Play()
         tweenService:Create(dot, TweenInfo.new(0.2, Enum.EasingStyle.Quart), { Position = targetDotPos }):Play()
         pcall(cb, on)
+        if _G.QueueSave then _G.QueueSave() end
     end)
     return btn
 end
 
-local function makeSlider(parent, text, default, min, max, cb)
+function makeSlider(parent, text, default, min, max, cb)
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 42)
+    frame.Size = UDim2.new(1, 0, 0, 46)
     frame.BackgroundColor3 = C_ELEM
-        frame.BackgroundTransparency = 0
     frame.BorderSizePixel = 0
     frame.Parent = parent
-
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, 6)
-    c.Parent = frame
-
-    local s = Instance.new("UIStroke")
-    s.Thickness = 1
-    s.Color = Color3.fromRGB(255, 255, 255)
-    s.Transparency = 0.94
-    s.Parent = frame
+    Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 6)
 
     local lbl = Instance.new("TextLabel")
     lbl.Size = UDim2.new(1, -70, 0, 18)
@@ -2076,53 +2253,97 @@ local function makeSlider(parent, text, default, min, max, cb)
 
     local bar = Instance.new("Frame")
     bar.Size = UDim2.new(1, -20, 0, 4)
-    bar.Position = UDim2.new(0, 10, 0, 28)
+    bar.Position = UDim2.new(0, 10, 0, 30)
     bar.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
     bar.BorderSizePixel = 0
     bar.Parent = frame
     Instance.new("UICorner", bar).CornerRadius = UDim.new(1, 0)
 
+    local initP = (default - min) / (max - min)
     local fill = Instance.new("Frame")
-    local pct = (default - min) / (max - min)
-    fill.Size = UDim2.new(pct, 0, 1, 0)
+    fill.Size = UDim2.new(initP, 0, 1, 0)
     fill.BackgroundColor3 = C_ACCENT
     fill.BorderSizePixel = 0
     fill.Parent = bar
     Instance.new("UICorner", fill).CornerRadius = UDim.new(1, 0)
 
+    -- Núm tròn trắng cho dễ nhìn vị trí kéo
+    local knob = Instance.new("Frame")
+    knob.Size = UDim2.new(0, 12, 0, 12)
+    knob.AnchorPoint = Vector2.new(0.5, 0.5)
+    knob.Position = UDim2.new(initP, 0, 0.5, 0)
+    knob.BackgroundColor3 = Color3.new(1, 1, 1)
+    knob.BorderSizePixel = 0
+    knob.ZIndex = 3
+    knob.Parent = bar
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    -- Hitbox CAO 30px (không phải 4px)
     local btnArea = Instance.new("TextButton")
-    btnArea.Size = UDim2.new(1, 0, 1, 0)
+    btnArea.Size = UDim2.new(1, 20, 0, 30)
+    btnArea.Position = UDim2.new(0, -10, 0, -13)
     btnArea.BackgroundTransparency = 1
     btnArea.Text = ""
+    btnArea.ZIndex = 4
     btnArea.Parent = bar
 
     local dragging = false
+    local isScaleSlider = (text == "Menu Scale (%)")
+
+        local lastV = default
+
     local function update(mx)
-        local abs = bar.AbsolutePosition.X
+        local abs  = bar.AbsolutePosition.X
         local size = bar.AbsoluteSize.X
+        if size <= 0 then return end
         local p = math.clamp((mx - abs) / size, 0, 1)
         local v = min + p * (max - min)
         v = (max - min < 1) and (math.floor(v * 100) / 100) or math.floor(v)
+        lastV = v
         valLbl.Text = tostring(v)
         fill.Size = UDim2.new(p, 0, 1, 0)
-        pcall(cb, v)
+        knob.Position = UDim2.new(p, 0, 0.5, 0)
+        -- ★ Scale slider: KHÔNG apply cb trong lúc kéo, để dành đến lúc thả
+        if not isScaleSlider then
+            pcall(cb, v)
+            if _G.QueueSave then _G.QueueSave() end
+        end
     end
 
-    btnArea.MouseButton1Down:Connect(function() dragging = true end)
-    userInputService.InputEnded:Connect(function(i)
-        if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+    btnArea.MouseButton1Down:Connect(function()
+        dragging = true
+        if isScaleSlider then state._scaleSliderHold = true end
+        local sf = frame:FindFirstAncestorWhichIsA("ScrollingFrame")
+        if sf then sf.ScrollingEnabled = false end
+        update(userInputService:GetMouseLocation().X)
+    end)
+
+    -- ★ BULLETPROOF: poll chuột bằng Heartbeat, không dùng InputChanged
+    runService.Heartbeat:Connect(function()
+        if not dragging then return end
+        if not frame.Parent then dragging = false return end
+        update(userInputService:GetMouseLocation().X)
+    end)
+
+        userInputService.InputEnded:Connect(function(i)
+        if (i.UserInputType == Enum.UserInputType.MouseButton1
+            or i.UserInputType == Enum.UserInputType.Touch) and dragging then
             dragging = false
+            -- ★ Scale slider: commit giá trị cuối CÙNG 1 LẦN khi thả
+            if isScaleSlider then
+                pcall(cb, lastV)
+            end
+            if _G.QueueSave then _G.QueueSave() end
+            for _, p in pairs(pages) do
+                if p and p.Parent then p.ScrollingEnabled = true end
+            end
         end
     end)
-    userInputService.InputChanged:Connect(function(i)
-        if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-            update(i.Position.X)
-        end
-    end)
+
     return frame
 end
 
-local function makeInput(parent, text, default, cb)
+function makeInput(parent, text, default, cb)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 60)
     frame.BackgroundColor3 = BG3
@@ -2158,10 +2379,11 @@ local function makeInput(parent, text, default, cb)
     bc.Parent = box
 
     box.FocusLost:Connect(function() pcall(cb, box.Text) end)
+    if _G.QueueSave then _G.QueueSave() end
     return frame
 end
 
-local function makeDropdown(parent, text, options, default, cb)
+function makeDropdown(parent, text, options, default, cb)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 34)
     frame.BackgroundColor3 = BG3
@@ -2202,7 +2424,7 @@ local function makeDropdown(parent, text, options, default, cb)
     local open, list = false, nil
     local BASE_Z, OPEN_Z = 5, 100
 
-    local function closeList()
+    function closeList()
         if list then list:Destroy() list = nil end
         open = false
         frame.ZIndex = BASE_Z
@@ -2250,6 +2472,7 @@ local function makeDropdown(parent, text, options, default, cb)
                 label.Text = text .. ":  " .. opt
                 closeList()
                 pcall(cb, opt)
+                if _G.QueueSave then _G.QueueSave() end
             end)
         end
     end)
@@ -2260,19 +2483,19 @@ end
 -- ==========================================
 -- 13 TABS
 -- ==========================================
-local mainTab = createTab("Main", 1)
-local defenseTab = createTab("Defense", 2)
-local targetTab = createTab("Target", 3)
-local auraTab = createTab("Aura", 4)
-local visualTab = createTab("Visual", 5)
-local serverTab = createTab("Server", 6)
-local settingsTab = createTab("Settings", 7)
-local customTab = createTab("Custom", 8)
-local aimTab = createTab("Aim", 9)
-local espTab = createTab("ESP", 10)
-local funTab = createTab("Fun", 11)
-local notifyTab = createTab("Notify", 12)
-local blobTab = createTab("Blobman", 13)
+local mainTab     = createTab("Main", 1)
+local aimTab      = createTab("Aim", 2)
+local targetTab   = createTab("Target", 3)
+local auraTab     = createTab("Aura", 4)
+local espTab      = createTab("ESP", 5)
+local visualTab   = createTab("Visual", 6)
+local defenseTab  = createTab("Defense", 7)
+local serverTab   = createTab("Server", 8)
+local funTab      = createTab("Fun", 9)
+local notifyTab   = createTab("Notify", 10)
+local blobTab     = createTab("Blobman", 11)
+local customTab   = createTab("Custom", 12)
+local settingsTab = createTab("Settings", 13)
 
 mainTab.Visible = true
 tabBtns.Main.BackgroundTransparency = 0
@@ -2595,7 +2818,7 @@ state.autoSeatBlob = false
 state.freezeBlob = false
 
 -- Dropdown danh sách người chơi, tự làm mới mỗi lần mở
-local function makePlayerDropdown(parent, text, cb)
+function makePlayerDropdown(parent, text, cb)
     local frame = Instance.new("Frame")
     frame.Size = UDim2.new(1, 0, 0, 34)
     frame.BackgroundColor3 = BG3
@@ -2617,7 +2840,7 @@ local function makePlayerDropdown(parent, text, cb)
     Instance.new("UIPadding", btn).PaddingLeft = UDim.new(0, 10)
 
     local list
-    local function close()
+    function close()
         if list then list:Destroy() list = nil end
         frame.ZIndex = 5
     end
@@ -2660,6 +2883,7 @@ local function makePlayerDropdown(parent, text, cb)
                 if n ~= "(no players)" then
                     btn.Text = text .. ":  " .. n
                     pcall(cb, n)
+                    if _G.QueueSave then _G.QueueSave() end
                 end
                 close()
             end)
@@ -2671,7 +2895,7 @@ end
 state.makePlayerDropdown = makePlayerDropdown
 
 -- Áp method lên 1 người (không dùng Blobman)
-local function ApplyTargetMethods(p, methods)
+function ApplyTargetMethods(p, methods)
     if not p or not p.Character then return end
     local char = localPlayer.Character
     local _, hrp, hum = GetHRH(char)
@@ -2706,7 +2930,7 @@ end
 end
 
 -- Áp method Blobman lên 1 người (cần đang ngồi Blobman)
-local function ApplyBlobMethod(p, method)
+function ApplyBlobMethod(p, method)
     if not p or not p.Character then return end
     local char = localPlayer.Character
     local _, hrp, hum = GetHRH(char)
@@ -2751,7 +2975,7 @@ end
     if method ~= "Lock" and hrp.Parent then Teleport(hrp, origCF, CFrame.new(0, 0, 0)) end
 end
 
-local function targetPlayers(selName, server)
+function targetPlayers(selName, server)
     local out = {}
     if server then
         for _, p in ipairs(players:GetPlayers()) do
@@ -2890,7 +3114,7 @@ wlLabel.Text = "Whitelist: (trống)"
 wlLabel.Parent = customTab
 Instance.new("UICorner", wlLabel).CornerRadius = UDim.new(0, 6)
 
-local function refreshWL()
+function refreshWL()
     local names = {}
     for uid in pairs(state.whitelist) do
         local p = players:GetPlayerByUserId(uid)
@@ -3043,7 +3267,7 @@ function createSnowEffect(parent, density)
     layer.ZIndex = 1
     layer.Parent = parent
 
-    local function spawnFlake()
+    function spawnFlake()
         if not layer.Parent then return end
         local size = math.random(2, 4)
         local flake = Instance.new("Frame")
@@ -3473,7 +3697,7 @@ task.spawn(function()
 end)
 
 -- Auto track deaths qua Humanoid.Died
-local function _hookDeath(ch)
+function _hookDeath(ch)
     local hum = ch:FindFirstChildOfClass("Humanoid") or ch:WaitForChild("Humanoid", 3)
     if hum then
         hum.Died:Connect(function()
@@ -3541,7 +3765,7 @@ Instance.new("UICorner", cancelBtn).CornerRadius = UDim.new(0, 6)
 
 local originalHudState = {}
 
-local function setHudEditMode(enabled)
+function setHudEditMode(enabled)
     editGui.Enabled = enabled
     main.Visible = not enabled
 
@@ -3694,14 +3918,12 @@ makeButton(settingsTab, "Clear Current Background Cache", function()
     Notify("Theme", "Cache cleared: " .. name, "info", 2)
 end)
 
-makeButton(settingsTab, "Reset to Default Background", function()
 makeButton(settingsTab, "Refresh Current Theme (re-download)", function()
     local name = state.themeName
     if not name then
         Notify("Theme", "No theme selected", "warning", 2)
         return
     end
-    -- Clear cache first
     local preset = _getPresetByName(name)
     if preset then
         for _, e in ipairs({".png", ".jpg"}) do
@@ -3719,32 +3941,19 @@ makeButton(settingsTab, "Refresh Current Theme (re-download)", function()
     end)
 end)
 
-    state.bgLink = DEFAULT_BG_LINK
-    state.bgName = DEFAULT_BG_NAME
-    _G.NileBgLink = DEFAULT_BG_LINK
-    _G.NileBgName = DEFAULT_BG_NAME
+makeButton(settingsTab, "Reset to Default Background", function()
+    state.bgLink = ""
+    state.bgName = "default"
+    state.themeName = "Default"
+    _G.NileBgLink = ""
+    _G.NileBgName = "default"
+    _G.NileBgUrl = nil
     if bgImage and bgImage.Parent then
         bgImage.Image = "rbxassetid://132880483631327"
     end
+    _G.NileApplyThemeColors("Default")
     bgInfoLabel.Text = "Current background: default (Roblox ID)"
-    Notify("Theme", "Reset to default background", "info", 2)
-end)
-state.snowEnabled = true
-
-makeToggle(settingsTab, "Snow Effect on HUD", true, function(on)
-    state.snowEnabled = on
-    -- Bật: thêm snow vào các box chưa có
-    -- Tắt: xoá hết layer
-    for _, box in ipairs({wmBox, hotkeyBox, pBox, statsBox}) do
-        if box and box.Parent then
-            local existing = box:FindFirstChild("SnowLayer")
-            if on and not existing then
-                pcall(createSnowEffect, box, 10)
-            elseif not on and existing then
-                existing:Destroy()
-            end
-        end
-    end
+    Notify("Theme", "Reset to default", "info", 2)
 end)
 
 makeToggle(settingsTab, "Show Watermark", true, function(on)
@@ -3807,7 +4016,7 @@ local EXP_OWN = {
     BombBalloon = "Balloon", PresentBig = "Box", PresentSmall = "Box", BallSnowball = "SoundPart",
 }
 
-local function ExplodeAt(posPart, pos, typeName)
+function ExplodeAt(posPart, pos, typeName)
     local be = replicatedStorage:FindFirstChild("BombEvents")
     local remote = be and be:FindFirstChild("BombExplode")
     if not remote then return false end
@@ -3834,7 +4043,7 @@ local function ExplodeAt(posPart, pos, typeName)
     return true
 end
 
-local function RunExplosions()
+function RunExplosions()
     for _ = 1, state.expAmount do
         if state.expMode == "Mouse" then
             local p = localPlayer:GetMouse().Hit.Position
@@ -3879,7 +4088,7 @@ makeToggle(auraTab, "Loop Explode", false, function(on) state.expLoop = on end)
 state.anch = {}
 state.anchClick = false
 
-local function unanchorPart(part)
+function unanchorPart(part)
     local rec = state.anch[part]
     if not rec then return end
     for _, k in ipairs({"bp", "bg", "hl"}) do
@@ -3888,11 +4097,11 @@ local function unanchorPart(part)
     state.anch[part] = nil
 end
 
-local function unanchorAll()
+function unanchorAll()
     for part in pairs(state.anch) do unanchorPart(part) end
 end
 
-local function anchorPart(part)
+function anchorPart(part)
     if state.anch[part] then unanchorPart(part) return end
     if not part:IsA("BasePart") or part.Anchored then
         Notify("Anchor", "Part này không dùng được", "warning", 2) return
@@ -3931,7 +4140,7 @@ task.spawn(function()
     end
 end)
 
-local function partUnderPoint(vx, vy)
+function partUnderPoint(vx, vy)
     local cam = workspace.CurrentCamera
     local ray = cam:ViewportPointToRay(vx, vy)
     local rp = RaycastParams.new()
@@ -3971,7 +4180,7 @@ makeButton(customTab, "Unanchor All", unanchorAll)
 state.customCursor = true
 state.hideMouse = false
 
-local function applyCursor()
+function applyCursor()
     if state.hideMouse then
         cursorGui.Enabled = false
         if not cursorIsMobile then userInputService.MouseIconEnabled = false end
@@ -4022,7 +4231,7 @@ do
 local guiService = game:GetService("GuiService")
 local localMouse = localPlayer:GetMouse()
 
-local function partUnderPoint(vx, vy, ignore)
+function partUnderPoint(vx, vy, ignore)
     local cam = workspace.CurrentCamera
     local ray = cam:ViewportPointToRay(vx, vy)
     local rp = RaycastParams.new()
@@ -4033,7 +4242,7 @@ local function partUnderPoint(vx, vy, ignore)
 end
 
 -- Keybind button: bấm nút rồi nhấn phím để đổi
-local function makeKeybind(parent, text, default, cb)
+function makeKeybind(parent, text, default, cb)
     local btn = makeButton(parent, text .. ": " .. default.Name, function() end)
     local waiting = false
     btn.MouseButton1Click:Connect(function()
@@ -4058,13 +4267,13 @@ state.ab = {
     toggled = false, key = Enum.KeyCode.E,
 }
 
-local function abPart(char)
+function abPart(char)
     return char:FindFirstChild(state.ab.part)
         or char:FindFirstChild("Head")
         or char:FindFirstChild("HumanoidRootPart")
 end
 
-local function abBestTarget()
+function abBestTarget()
         local cam = workspace.CurrentCamera
     local mouse = cam.ViewportSize / 2
     local myChar = localPlayer.Character
@@ -4207,11 +4416,11 @@ scoreLabel.Font = Enum.Font.GothamBold
 scoreLabel.TextSize = 13
 scoreLabel.Text = "Score: 0"
 
-local function randPos()
+function randPos()
     return TR_ORIGIN + Vector3.new(math.random(-35, 35), math.random(8, 30), math.random(-45, -15))
 end
 
-local function newBall(i)
+function newBall(i)
     local b = Instance.new("Part")
     b.Name = "TrainerBall"
     b.Shape = Enum.PartType.Ball
@@ -4227,13 +4436,13 @@ local function newBall(i)
     return b
 end
 
-local function closeTrainer()
+function closeTrainer()
     if state.tr.folder then state.tr.folder:Destroy() end
     state.tr.folder, state.tr.balls, state.tr.score = nil, {}, 0
     scoreLabel.Text = "Score: 0"
 end
 
-local function openTrainer()
+function openTrainer()
     closeTrainer()
     local f = Instance.new("Folder")
     f.Name = "NileTrainer"
@@ -4259,7 +4468,7 @@ local function openTrainer()
     end
 end
 
-local function leaveTrainer()
+function leaveTrainer()
     local hrp = localPlayer.Character and localPlayer.Character:FindFirstChild("HumanoidRootPart")
     if hrp and state.tr.back then
         hrp.CFrame = state.tr.back
@@ -4343,7 +4552,7 @@ end
 
 state.anim = {name = animNames[1], speed = 1, track = nil, playing = false}
 
-local function stopAnim()
+function stopAnim()
     if state.anim.track then
         pcall(function() state.anim.track:Stop() end)
         pcall(function() state.anim.track:Destroy() end)
@@ -4352,7 +4561,7 @@ local function stopAnim()
     state.anim.playing = false
 end
 
-local function playAnim()
+function playAnim()
     stopAnim()
     local char = localPlayer.Character
     local hum = char and char:FindFirstChildOfClass("Humanoid")
@@ -4390,7 +4599,7 @@ end)
 
 -- ---------- FLIPS ----------
 local flipping = false
-local function Flip(dir) -- dir = -1: front flip, +1: back flip
+function Flip(dir) -- dir = -1: front flip, +1: back flip
     if flipping then return end
     local char = localPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -4435,7 +4644,7 @@ makeToggle(mainTab, "Character Spin", false, function(on) state.spin.on = on end
 state.tpName = nil
 makePD(mainTab, "Player", function(n) state.tpName = n end)
 
-local function targetHRP()
+function targetHRP()
     local p = state.tpName and players:FindFirstChild(state.tpName)
     return p, p and p.Character and p.Character:FindFirstChild("HumanoidRootPart")
 end
@@ -4491,7 +4700,7 @@ local LIMB_SETS = {
     All  = {"Left Arm", "Right Arm", "Left Leg", "Right Leg"},
 }
 
-local function DeleteLimbsOf(char, which)
+function DeleteLimbsOf(char, which)
     local torso = char and char:FindFirstChild("Torso")
     if not torso then
         Notify("Limbs", "Mục tiêu không phải R6", "warning", 2) return
@@ -4515,7 +4724,7 @@ local function DeleteLimbsOf(char, which)
 end
 
 -- Xóa chi của người đang bị mình grab (logic gốc: phải đang ragdoll)
-local function DeleteGrabbedLimbs()
+function DeleteGrabbedLimbs()
     local gp = workspace_:FindFirstChild("GrabParts")
     local weld = gp and gp:FindFirstChild("GrabPart") and gp.GrabPart:FindFirstChild("WeldConstraint")
     local part1 = weld and weld.Part1
@@ -4532,7 +4741,7 @@ local function DeleteGrabbedLimbs()
 end
 
 -- Xóa chi của người dưới con trỏ chuột
-local function DeleteMouseLimbs()
+function DeleteMouseLimbs()
     local t = localMouse.Target
     local model = t and t:FindFirstAncestorOfClass("Model")
     local p = model and players:GetPlayerFromCharacter(model)
@@ -4599,7 +4808,7 @@ end)
 -- ---------- NAME ESP (tên + khoảng cách) ----------
 state.nameEsp = {on = false, tags = {}}
 
-local function clearNameEsp()
+function clearNameEsp()
     for _, t in pairs(state.nameEsp.tags) do pcall(function() t:Destroy() end) end
     state.nameEsp.tags = {}
 end
@@ -4703,18 +4912,18 @@ state.markKey = Enum.KeyCode.H      -- F đã dùng cho Frontflip
 local markColor = Color3.fromRGB(255, 50, 70)
 local markHL
 
-local function clearMark()
+function clearMark()
     if markHL then pcall(function() markHL:Destroy() end) markHL = nil end
     state.marked = nil
 end
 
-local function setMark(p)
+function setMark(p)
     clearMark()
     state.marked = p
     Notify("Mark Target", "Đã đánh dấu " .. p.DisplayName, "warning", 2)
 end
 
-local function playerUnderMouse()
+function playerUnderMouse()
     local t = localMouse.Target
     local model = t and t:FindFirstAncestorOfClass("Model")
     local p = model and players:GetPlayerFromCharacter(model)
@@ -4810,16 +5019,16 @@ do
     local _voidTracked = {}   -- [userId] = tick() lần cuối track
 local _killTracked = {}
 
-    local function _isWL(p)
+    function _isWL(p)
         return state.isWL and state.isWL(p) or false
     end
 
-    local function _ownerIsMe(part)
+    function _ownerIsMe(part)
         local po = part and part:FindFirstChild("PartOwner")
         return po ~= nil and po.Value == localPlayer.Name
     end
 
-    local function _lookAt(pos, target)
+    function _lookAt(pos, target)
         local dir = target - pos
         if dir.Magnitude < 0.001 then return CFrame.new(pos) end
         local unit = dir.Unit
@@ -4828,7 +5037,7 @@ local _killTracked = {}
         return CFrame.fromMatrix(pos, right, right:Cross(unit))
     end
 
-    local function _snowship(part)
+    function _snowship(part)
         if not part or not part.Parent or not part:IsA("BasePart") then return end
         if _ownerIsMe(part) then return end
         local char = localPlayer.Character
@@ -4840,7 +5049,7 @@ local _killTracked = {}
         end)
     end
 
-    local function _skyVelocity(part)
+    function _skyVelocity(part)
         if not part or part:FindFirstChild("_nileSkyVel") then return end
         local bv = Instance.new("BodyVelocity")
         bv.Name = "_nileSkyVel"
@@ -4850,12 +5059,12 @@ local _killTracked = {}
         Debris:AddItem(bv, 0.25)
     end
 
-    local function _release(part)
+    function _release(part)
         if not part then return end
         pcall(function() destroyGrabLine:FireServer(part) end)
     end
 
-    local function _grabIsActive(part)
+    function _grabIsActive(part)
         if not part or not part.Parent then return false end
         local gp = workspace_:FindFirstChild("GrabParts")
         if not gp then return false end
@@ -4872,7 +5081,7 @@ local _killTracked = {}
     state.auraModes = {}
     state.auraLoop = false
 
-    local function _getAuraTargets()
+    function _getAuraTargets()
         local out = {}
         local char = localPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
@@ -4891,7 +5100,7 @@ local _killTracked = {}
         return out
     end
 
-    local function _runAuraMode(mode, t)
+    function _runAuraMode(mode, t)
         local char = localPlayer.Character
         local hrp = char and char:FindFirstChild("HumanoidRootPart")
         if not hrp then return end
@@ -4998,7 +5207,7 @@ local _killTracked = {}
     end
 
     local _auraHL = {}
-    local function _updateHL()
+    function _updateHL()
         local active = state.auraModes["Highlight"]
         local targets = active and _getAuraTargets() or {}
         local seen = {}
@@ -5068,7 +5277,7 @@ local _killTracked = {}
     state.grabStrengthPower = 5
     state.grabSpinSpeed = 5
 
-    local function _getGrabbedPart()
+    function _getGrabbedPart()
         local gp = workspace_:FindFirstChild("GrabParts")
         if not gp then return nil end
         local grabPart = gp:FindFirstChild("GrabPart")
@@ -5310,7 +5519,7 @@ function _G.NileColorPicker(parent, text, default, cb)
     local labels = {}
     local sCol = {Color3.fromRGB(255,80,80), Color3.fromRGB(80,255,80), Color3.fromRGB(80,80,255)}
     local sLbl = {"R", "G", "B"}
-    local function refresh()
+    function refresh()
         prev.BackgroundColor3 = Color3.fromRGB(cur[1], cur[2], cur[3])
         for i=1,3 do if labels[i] then labels[i].Text = tostring(cur[i]) end end
         if cb then pcall(cb, prev.BackgroundColor3) end
@@ -5360,7 +5569,7 @@ function _G.NileColorPicker(parent, text, default, cb)
         btn.Text = ""
         btn.Parent = bar
         local dragging, idx = false, i
-        local function upd(mx)
+        function upd(mx)
             local abs = bar.AbsolutePosition.X
             local sz = bar.AbsoluteSize.X
             if sz <= 0 then return end
@@ -5392,6 +5601,7 @@ function _G.NileKeybind(parent, text, default, cb)
             waiting = false
             btn.Text = text .. ": " .. i.KeyCode.Name
             cb(i.KeyCode)
+            if _G.QueueSave then _G.QueueSave() end
         end
     end)
     cb(default)
@@ -5413,7 +5623,7 @@ do
 
     local cache = {}
 
-    local function setHL(adornee, key, fill, outline, fillT)
+    function setHL(adornee, key, fill, outline, fillT)
         if not adornee then return end
         local hl = cache[key]
         if not hl or not hl.Parent then
@@ -5430,7 +5640,7 @@ do
         hl.OutlineColor = outline
     end
 
-    local function clearHL(key)
+    function clearHL(key)
         local hl = cache[key]
         if hl then pcall(function() hl:Destroy() end) cache[key] = nil end
     end
@@ -5521,7 +5731,7 @@ do
     state.spinRunning = false
     state.spinCPS = 1
 
-    local function getTimeText()
+    function getTimeText()
         local slots = workspace_:FindFirstChild("Slots")
         if not slots then return "0:00", nil end
         for _, d in ipairs(slots:GetDescendants()) do
@@ -5532,7 +5742,7 @@ do
         return "0:00", nil
     end
 
-    local function findSlots()
+    function findSlots()
         local out = {}
         local slots = workspace_:FindFirstChild("Slots")
         if not slots then return out end
@@ -5558,7 +5768,7 @@ do
         return out
     end
 
-    local function fireOwner(slot, cf)
+    function fireOwner(slot, cf)
         if not slot.handle then return end
         if setNetworkOwner then
             pcall(function() setNetworkOwner:FireServer(slot.handle, cf) end)
@@ -5758,7 +5968,7 @@ do
     -- ---- Fakepos ----
     state.fakeposOn = false
     local fakePart = nil
-    local function setHidden(inst, prop, val)
+    function setHidden(inst, prop, val)
         pcall(function() sethiddenproperty(inst, prop, val) end)
         pcall(function() set_hidden_property(inst, prop, val) end)
     end
@@ -5911,7 +6121,7 @@ do
     local wDown, sDown, aDown, dDown = false, false, false, false
     local boosting = false
 
-    local function spawnJet()
+    function spawnJet()
         if jetRoot and jetRoot.Parent then return end
         local ch = localPlayer.Character
         local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
@@ -5957,7 +6167,7 @@ do
         Notify("JET", "F-22 spawned", "success", 2)
     end
 
-    local function removeJet()
+    function removeJet()
         if weld then pcall(function() weld:Destroy() end) weld = nil end
         if bv then pcall(function() bv:Destroy() end) bv = nil end
         if bg then pcall(function() bg:Destroy() end) bg = nil end
@@ -5970,7 +6180,7 @@ do
         seated = false
     end
 
-    local function seatJet()
+    function seatJet()
         if seated or not jetRoot or not jetRoot.Parent then return end
         local ch = localPlayer.Character
         local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
@@ -6027,7 +6237,7 @@ do
         Notify("JET", "Đã ngồi vào F-22", "success", 2)
     end
 
-    local function toggleJet()
+    function toggleJet()
         if seated then
             removeJet()
             Notify("JET", "Đã rời F-22", "info", 2)
@@ -6093,25 +6303,24 @@ do
     local FILE = FOLDER .. "/bhub_ftap_state.json"
     local HttpService = game:GetService("HttpService")
 
-    local function ensureFolder()
+    function ensureFolder()
         pcall(function()
             if isfolder and not isfolder(FOLDER) then makefolder(FOLDER) end
         end)
     end
 
-    -- Hàm chuyển đổi dữ liệu (hỗ trợ lưu cả bảng lồng nhau như hudConfig, keys)
-    local function serializeValue(val)
+    function serializeValue(val)
         local t = typeof(val)
         if t == "number" or t == "string" or t == "boolean" then
             return val
         elseif t == "EnumItem" then
-            return {_type = "EnumItem", enum = tostring(val.EnumType), name = val.Name}
+            -- FIX: Lấy đúng tên Enum (VD: KeyCode thay vì Enum.KeyCode)
+            return {_type = "EnumItem", enum = val.EnumType.Name, name = val.Name}
         elseif t == "Color3" then
             return {_type = "Color3", r = val.R, g = val.G, b = val.B}
         elseif t == "table" then
             local sub = {}
             for k, v in pairs(val) do
-                -- Bỏ qua các object Instance roblox hoặc function
                 if typeof(v) ~= "Instance" and type(v) ~= "function" then
                     sub[tostring(k)] = serializeValue(v)
                 end
@@ -6121,12 +6330,11 @@ do
         return nil
     end
 
-    -- Hàm giải mã khôi phục dữ liệu
-    local function deserializeValue(val)
+    function deserializeValue(val)
         if type(val) == "table" then
             if val._type == "Color3" then
                 return Color3.new(val.r, val.g, val.b)
-            elseif val._type == "EnumItem" and Enum[val.enum] then
+            elseif val._type == "EnumItem" and Enum[val.enum] and Enum[val.enum][val.name] then
                 return Enum[val.enum][val.name]
             else
                 local sub = {}
@@ -6140,22 +6348,23 @@ do
         return val
     end
 
-    local function saveConfig()
+    function saveConfig()
         ensureFolder()
         if not writefile then return end
         local exportData = {}
         for k, v in pairs(state) do
-    if k == "session" then continue end   -- không lưu session stats
-    if typeof(v) ~= "Instance" and type(v) ~= "function" and not tostring(k):find("Conn") then
-        exportData[tostring(k)] = serializeValue(v)
-    end
-end
+            if k == "session" then continue end
+            if typeof(v) ~= "Instance" and type(v) ~= "function" and not tostring(k):find("Conn") then
+                exportData[tostring(k)] = serializeValue(v)
+            end
+        end
+        _G.saveConfig = saveConfig
         pcall(function()
             writefile(FILE, HttpService:JSONEncode(exportData))
         end)
     end
 
-    local function loadConfig()
+    function loadConfig()
         ensureFolder()
         if not (isfile and isfile(FILE)) then return end
         local raw = ""
@@ -6176,7 +6385,7 @@ end
             end
         end
 
-        -- ÁP DỤNG NGAY LẬP TỨC TỌA ĐỘ VÀ KÍCH THƯỚC HUD VỪA LOAD
+        -- Áp dụng vị trí HUD và Scale ngay lập tức
         task.defer(function()
             if state.hudConfig then
                 if wmBox and state.hudConfig.wmPos and state.hudConfig.wmSize then
@@ -6189,23 +6398,33 @@ end
                     applyTransform(pBox, state.hudConfig.plPos, state.hudConfig.plSize)
                 end
                 if statsBox and state.hudConfig.ssPos and state.hudConfig.ssSize then
-    applyTransform(statsBox, state.hudConfig.ssPos, state.hudConfig.ssSize)
-end
-if state.hudVisible then
-    if wmBox then wmBox.Visible = state.hudVisible.wm ~= false end
-    if hotkeyBox then hotkeyBox.Visible = state.hudVisible.hk ~= false end
-    if pBox then pBox.Visible = state.hudVisible.pl ~= false end
-    if statsBox then statsBox.Visible = state.hudVisible.ss ~= false end
-end
+                    applyTransform(statsBox, state.hudConfig.ssPos, state.hudConfig.ssSize)
+                end
+                if state.hudVisible then
+                    if wmBox then wmBox.Visible = state.hudVisible.wm ~= false end
+                    if hotkeyBox then hotkeyBox.Visible = state.hudVisible.hk ~= false end
+                    if pBox then pBox.Visible = state.hudVisible.pl ~= false end
+                    if statsBox then statsBox.Visible = state.hudVisible.ss ~= false end
+                end
             end
-            if updateHotkeyHud then pcall(updateHotkeyHud) end
+            if mainScale and state.menuScale then
+                mainScale.Scale = state.menuScale / 100
+            end
         end)
+        print("[BHUB] Config Loaded!")
     end
 
     -- Khôi phục cấu hình ngay lập tức khi inject
     loadConfig()
 
-    -- Tự động lưu cấu hình mỗi 3 giây nếu mở toggle
+    -- 🟢 FIX QUAN TRỌNG: Lưu config NGAY LẬP TỨC khi tắt GUI (bấm X hoặc Re-inject)
+    gui.Destroying:Connect(function()
+        if state.autoSaveConfig then
+            saveConfig()
+        end
+    end)
+
+    -- Tự động lưu cấu hình mỗi 3 giây phòng hờ crash
     task.spawn(function()
         while gui.Parent do
             task.wait(3)
@@ -6224,7 +6443,7 @@ do
     state.extraLoopSel = false
     state.extraLoopServer = false
 
-    local function kickMethod(p)
+    function kickMethod(p)
         local ch = p.Character
         local hrp = ch and ch:FindFirstChild("HumanoidRootPart")
         local hum = ch and ch:FindFirstChildOfClass("Humanoid")
@@ -6249,7 +6468,7 @@ do
         end)
     end
 
-    local function removeGucci(p)
+    function removeGucci(p)
         local ch = p.Character
         local hum = ch and ch:FindFirstChildOfClass("Humanoid")
         if not hum then return end
@@ -6272,7 +6491,7 @@ do
         pcall(function() hum:ChangeState(Enum.HumanoidStateType.GettingUp) end)
     end
 
-    local function removeHoldable(p)
+    function removeHoldable(p)
         local folder = workspace_:FindFirstChild(p.Name .. "SpawnedInToys")
         local ch = p.Character
         if not folder or not ch then return end
@@ -6288,7 +6507,7 @@ do
         end
     end
 
-    local function removeInvisibility(p)
+    function removeInvisibility(p)
         local ch = p.Character
         if not ch then return end
         local pcld = ch:FindFirstChild("PCLD") or ch:FindFirstChild("PCID")
@@ -6315,7 +6534,7 @@ do
         end
     end
 
-    local function applyExtra(p, m)
+    function applyExtra(p, m)
         if not p or not p.Character or (state.isWL and state.isWL(p)) then return end
         if m.Kick then task.spawn(kickMethod, p) end
         if m["Remove Gucci"] then task.spawn(removeGucci, p) end
@@ -6399,12 +6618,12 @@ end
 -- ==========================================
 -- EXECUTOR DETECTION
 -- ==========================================
-local function getExecutorName()
+function getExecutorName()
     local ok, name = pcall(function() return identifyexecutor and identifyexecutor() or "Unknown" end)
     return ok and tostring(name) or "Unknown"
 end
 
-local function matchList(str, list)
+function matchList(str, list)
     local s = tostring(str):lower()
     for _, x in ipairs(list) do
         if s:find(x, 1, true) then return true end
@@ -6420,7 +6639,7 @@ local isPCExec = matchList(executorName, PC_EXECS)
 local isMobileExec = matchList(executorName, MOBILE_EXECS)
     or (userInputService.TouchEnabled and not userInputService.MouseEnabled)
 
-local function testHookSupport()
+function testHookSupport()
     if not (hookmetamethod and newcclosure and getnamecallmethod) then
         return false, "hookmetamethod missing"
     end
@@ -6560,7 +6779,7 @@ state.toyHeight = 15
 state.toyGrabType = "Aura"
 state.toySet = {}
 
-local function computeToyPositions()
+function computeToyPositions()
     local char = localPlayer.Character
     local hrp = char and char:FindFirstChild("HumanoidRootPart")
     if not hrp then return {} end
@@ -6594,7 +6813,7 @@ local function computeToyPositions()
     return positions
 end
 
-local function clearToySet()
+function clearToySet()
     for _, t in ipairs(state.toySet) do
         if t and t.Parent then pcall(function() destroyToyRemote:FireServer(t) end) end
     end
@@ -6650,7 +6869,7 @@ local LIGHTING = game:GetService("Lighting")
 local origLighting = {}
 local capturedOrig = false
 
-local function captureLighting()
+function captureLighting()
     if capturedOrig then return end
     capturedOrig = true
     for _, k in ipairs({
@@ -6724,7 +6943,7 @@ makeDropdown(visualTab, "Shader Preset",
 makeSection(visualTab, "Clouds")
 
 local terrainSvc = workspace_:FindFirstChildOfClass("Terrain")
-local function getClouds()
+function getClouds()
     if not terrainSvc then return nil end
     local c = terrainSvc:FindFirstChildOfClass("Clouds")
     if not c then
@@ -6769,7 +6988,7 @@ end)
 -- ==========================================
 makeSection(defenseTab, "Water")
 
-local function getOceanParts()
+function getOceanParts()
     local out = {}
     local map = workspace_:FindFirstChild("Map")
     if map then
@@ -6862,9 +7081,9 @@ end)
 -- ==========================================
 -- ANTI FEATURES (advanced)
 -- ==========================================
-makeSection(defenseTab, "Advanced Protection")
+makeSection(defenseTab, "Protection")
 
-makeToggle(defenseTab, "Anti-Kick (Advanced)", false, function(on)
+makeToggle(defenseTab, "Anti-Kick", false, function(on)
     state.advAntiKick = on
     if state.advAntiKickConn then state.advAntiKickConn:Disconnect() state.advAntiKickConn = nil end
     if not on then return end
@@ -7211,6 +7430,506 @@ end)
 makeSlider(funTab, "Gravity", 196, 0, 500, function(v)
     workspace_.Gravity = v
 end)
+
+-- ==========================================
+-- AUTO-RESTORE: khôi phục tính năng từ config
+-- ==========================================
+task.spawn(function()
+    task.wait(1.5)   -- đợi loadConfig xong
+
+    -- 1) Khởi động lại các loop dựa trên state đã load
+    if state.flyEnabled          then pcall(ToggleFly, true) end
+    if state.antiGrab            then pcall(ToggleAntiGrab, function() return state.antiGrab end) end
+    if state.antiLag             then pcall(ToggleAntiLag,  function() return state.antiLag  end) end
+    if state.lineLagRunning      then pcall(StartLineLag) end
+    if state.crazyLineRunning    then pcall(StartCrazyLine, 0.1) end
+    if state.packetLagRunning    then pcall(StartPacketLag) end
+    if state.loopNoBlobRunning   then pcall(LoopAllNoBlobman) end
+    if state.loopBlobRunning     then pcall(LoopAllBlobman) end
+    if state.bananaAllRunning    then pcall(BananaAll) end
+    if state.autoExplodeRunning  then pcall(AutoExplodeToggle, function() return state.autoExplodeRunning end) end
+    if state.soundSpamRunning    then pcall(SoundSpam, function() return state.soundSpamRunning end) end
+    if state.antiVoid then pcall(ToggleAntiVoid, true) end
+    if state.stealRunning        then
+        task.spawn(function()
+            while state.stealRunning do
+                StealHoldables("all", state.stealMode)
+                task.wait(0.1)
+            end
+        end)
+    end
+    if state.syncAllRunning then
+        task.spawn(function()
+            while state.syncAllRunning do
+                for _, p in players:GetPlayers() do
+                    if p ~= localPlayer and p.Character then
+                        local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                        if hrp and hrp.Massless then hrp.Massless = false end
+                    end
+                end
+                task.wait(0.1)
+            end
+        end)
+    end
+
+    -- 2) Đồng bộ giao diện toggle khớp với state đã load
+    --    Quét tất cả toggle trong GUI, nếu state có key cùng giá trị thì bật pill
+ local MAP = {
+    ["Fly"]                   = "flyEnabled",
+    ["Anti Grab"]             = "antiGrab",
+    ["Anti Lag"]              = "antiLag",
+    ["Anti Void"]             = "antiVoid",
+    ["Line Lag"]              = "lineLagRunning",
+    ["Crazy Line"]            = "crazyLineRunning",
+    ["Packet Lag"]            = "packetLagRunning",
+    ["Loop All NoBlob"]       = "loopNoBlobRunning",
+    ["Loop All Blob"]         = "loopBlobRunning",
+    ["Auto Explode Bombs"]    = "autoExplodeRunning",
+    ["Banana All"]            = "bananaAllRunning",
+    ["Sound Spam"]            = "soundSpamRunning",
+    ["Steal All Holdables"]   = "stealRunning",
+    ["Sync All (Anti Invis)"] = "syncAllRunning",
+    ["Toy Aura Active"]       = "toyAuraAdv",
+    ["Triggerbot"]            = "trig.on",        -- Fix nested
+    ["Silent Aim"]            = "silent.enabled", -- Fix nested
+    ["Silent Aim V2"]         = "silentAim",
+}
+
+local function getStatePath(path)
+    local v = state
+    for k in path:gmatch("[^%.]+") do
+        if type(v) ~= "table" then return nil end
+        v = v[k]
+    end
+    return v
+end
+
+local function findPill(btn)
+    for _, c in ipairs(btn:GetChildren()) do
+        if c:IsA("Frame") and c.Size == UDim2.new(0, 28, 0, 14) then return c end
+    end
+end
+
+local function setPillVisual(pill, on)
+    pill.BackgroundColor3 = on and C_ACCENT or Color3.fromRGB(45, 45, 55)
+    local dot = pill:FindFirstChildWhichIsA("Frame")
+    if dot then
+        dot.Position = on and UDim2.new(1, -12, 0.5, -5)
+                          or UDim2.new(0, 2, 0.5, -5)
+    end
+end
+
+for _, btn in ipairs(gui:GetDescendants()) do
+    if btn:IsA("TextButton") and btn.Text:sub(1,2) == "  " then
+        local label = btn.Text:sub(3)
+        local path  = MAP[label]
+        if path then
+            local want = getStatePath(path) == true
+            local pill = findPill(btn)
+            if pill then
+                local isOn = (pill.BackgroundColor3 == C_ACCENT)
+                if want ~= isOn then
+                    -- firesignal để callback chạy (nếu có), fallback visual-only
+                    local clicked = false
+                    if firesignal then
+                        clicked = pcall(firesignal, btn.MouseButton1Click)
+                    end
+                    -- kiểm tra lại, nếu UI vẫn lệch thì ép visual
+                    if (pill.BackgroundColor3 == C_ACCENT) ~= want then
+                        setPillVisual(pill, want)
+                    end
+                end
+            end
+        end
+    end
+end
+
+    print("[BHUB] Auto-restore complete. State loaded:", 
+        state.flyEnabled and "Fly=ON" or "Fly=off",
+        state.antiGrab and "| AntiGrab=ON" or "")
+end)
+
+-- ==========================================
+-- [UNSTABLE PACK] FULL 100% LOGIC PORTED TO BHUB
+-- ==========================================
+do
+    local uPlayers = game:GetService("Players")
+    local uRS = game:GetService("ReplicatedStorage")
+    local uRun = game:GetService("RunService")
+    local uWS = workspace
+    local uLP = uPlayers.LocalPlayer
+    local uLighting = game:GetService("Lighting")
+    local uDebris = game:GetService("Debris")
+
+    local uGrabEvents = uRS:WaitForChild("GrabEvents")
+    local uSetNetOwner = uGrabEvents:WaitForChild("SetNetworkOwner")
+    local uDestroyLine = uGrabEvents:WaitForChild("DestroyGrabLine")
+    local uSpawnToy = uRS:WaitForChild("MenuToys"):WaitForChild("SpawnToyRemoteFunction")
+    local uDestroyToy = uRS:WaitForChild("MenuToys"):WaitForChild("DestroyToy")
+    local uStruggle = uRS:WaitForChild("CharacterEvents"):WaitForChild("Struggle")
+    local uStickyEvent = uRS:WaitForChild("PlayerEvents"):WaitForChild("StickyPartEvent")
+
+    -- ==========================================
+    -- 1. DEFENSE TAB (ANTI-KICK & ANTI-GRAB)
+    -- ==========================================
+    makeSection(defenseTab, "Anti-Kick v2")
+
+    -- [1.1] Shuriken Anti-Kick
+    local shurikenActive = false
+    local function GlobalClearKunai()
+        local inv = uWS:FindFirstChild(uLP.Name .. 'SpawnedInToys')
+        if inv then
+            for _, v in pairs(inv:GetChildren()) do
+                if v.Name == 'AntiKick' or v.Name == 'NinjaShuriken' then
+                    pcall(function() uDestroyToy:FireServer(v) end)
+                end
+            end
+        end
+    end
+
+    makeToggle(defenseTab, "Shuriken Anti Kick  ", false, function(on)
+        shurikenActive = on
+        if not on then GlobalClearKunai() return end
+        task.spawn(function()
+            local canSpawn = uLP:WaitForChild('CanSpawnToy')
+            local function getHRP() return uLP.Character and uLP.Character:FindFirstChild('HumanoidRootPart') end
+            local function IsProperlyStuck(kunai)
+                local sp = kunai and kunai:FindFirstChild('StickyPart')
+                local weld = sp and sp:FindFirstChild('StickyWeld')
+                local hrp = getHRP()
+                local firePart = hrp and hrp:FindFirstChild('FirePlayerPart')
+                return weld and weld.Part1 == firePart
+            end
+            local function StickKunai(kunai)
+                local sp = kunai and kunai:FindFirstChild('StickyPart')
+                local hrp = getHRP()
+                local firePart = hrp and hrp:FindFirstChild('FirePlayerPart')
+                if sp and firePart then
+                    pcall(function() uSetNetOwner:FireServer(sp, sp.CFrame) end)
+                    if kunai:FindFirstChild('SoundPart') then pcall(function() uSetNetOwner:FireServer(kunai.SoundPart, kunai.SoundPart.CFrame) end) end
+                    task.wait()
+                    uStickyEvent:FireServer(sp, firePart, CFrame.new(0, -0.5, 0) * CFrame.Angles(0, math.rad(90), math.rad(90)))
+                    for _, obj in pairs(kunai:GetDescendants()) do if obj:IsA('Highlight') or obj:IsA('SelectionBox') or obj:IsA('BillboardGui') then obj:Destroy() end end
+                    for _, obj in pairs(kunai:GetChildren()) do if obj:IsA('BasePart') then obj.CanTouch = false obj.CanCollide = false obj.CanQuery = false obj.Transparency = 0.5 obj.CastShadow = false end end
+                end
+            end
+            local function SpawnToy(name)
+                local t = tick()
+                while not canSpawn.Value do if not shurikenActive or tick() - t > 5 then return nil end task.wait(0.1) end
+                local hrp = getHRP()
+                if hrp then pcall(function() uSpawnToy:InvokeServer(name, hrp.CFrame * CFrame.new(0, 12, 20), Vector3.zero) end) end
+                local inv = uWS:FindFirstChild(uLP.Name .. 'SpawnedInToys')
+                return inv and inv:WaitForChild(name, 2)
+            end
+            while shurikenActive do
+                task.wait(0.005)
+                if not getHRP() or uLP.Character.Humanoid.Health <= 0 then continue end
+                local inv = uWS:FindFirstChild(uLP.Name .. 'SpawnedInToys')
+                local kunai = inv and inv:FindFirstChild('NinjaShuriken')
+                if not kunai then kunai = SpawnToy('NinjaShuriken') if not kunai then continue end kunai.Name = 'AntiKick' end
+                repeat
+                    if kunai and kunai:FindFirstChild('StickyPart') then
+                        if not IsProperlyStuck(kunai) or kunai.StickyPart.CanTouch == true then
+                            for attempt = 1, 8 do StickKunai(kunai) task.wait(0.4) if IsProperlyStuck(kunai) then break end end
+                            kunai.Name = 'AntiKick'
+                        end
+                    end
+                    task.wait(0.3)
+                until not kunai or not shurikenActive or not kunai:FindFirstChild('StickyPart') or kunai.StickyPart.CanTouch == false or not getHRP()
+            end
+            GlobalClearKunai()
+        end)
+    end)
+
+    -- [1.2] Pencil Anti-Kick
+    local pencilActive = false
+    makeToggle(defenseTab, "Pencil Anti Kick  ", false, function(on)
+        pencilActive = on
+        if not on then return end
+        task.spawn(function()
+            while pencilActive do
+                local inv = uWS:FindFirstChild(uLP.Name .. 'SpawnedInToys')
+                while inv and not inv:FindFirstChild('ToolPencil') and pencilActive do
+                    local char = uLP.Character
+                    local hrp = char and char:FindFirstChild('HumanoidRootPart')
+                    if hrp then uSpawnToy:InvokeServer('ToolPencil', hrp.CFrame + Vector3.new(0, 0, 15), Vector3.zero) end
+                    task.wait(0.05)
+                end
+                if not pencilActive then break end
+                local char = uLP.Character
+                local torso = char and char:FindFirstChild('Torso')
+                local hrp = char and char:FindFirstChild('HumanoidRootPart')
+                local pencil = inv and inv:FindFirstChild('ToolPencil')
+                if torso and hrp and pencil then
+                    local sticky = pencil:FindFirstChild('StickyPart')
+                    local weld = sticky and sticky:FindFirstChild('StickyWeld')
+                    if sticky and weld and weld.Part1 ~= torso then
+                        local a = pencil.SoundPart.CFrame.Position
+                        local b = hrp.CFrame.Position
+                        if math.sqrt((a.X - b.X)^2 + (a.Y - b.Y)^2 + (a.Z - b.Z)^2) > 20 then
+                            uDestroyToy:FireServer(pencil)
+                        else
+                            uRS.PlayerEvents.StickyPartEvent:FireServer(sticky, torso, CFrame.new(0, -1, 0) * CFrame.Angles(0, math.pi, 0))
+                            for _, prt in pairs(pencil:GetChildren()) do if prt:IsA('BasePart') then prt.CanQuery = false end end
+                            task.wait(0.1)
+                            if pencil.StickyPart.StickyWeld.Part1 ~= torso then uSetNetOwner:FireServer(pencil.SoundPart, pencil.SoundPart.CFrame) end
+                        end
+                    end
+                end
+                task.wait(0.02)
+            end
+        end)
+    end)
+
+    -- [1.3] Gucci Anti Grab (Blobman)
+    local gucciActive = false
+    makeToggle(defenseTab, "Gucci Anti Grab  ", false, function(on)
+        gucciActive = on
+        if not on then return end
+        task.spawn(function()
+            local guccion = false
+            while gucciActive do
+                local hum = uLP.Character and uLP.Character:FindFirstChild('Humanoid')
+                local hrp = uLP.Character and uLP.Character:FindFirstChild('HumanoidRootPart')
+                if hum and hrp then
+                    if not hum.SeatPart then
+                        local folder = uWS:FindFirstChild(uLP.Name .. 'SpawnedInToys')
+                        local blob = folder and folder:FindFirstChild('CreatureBlobman')
+                        if not blob then
+                            pcall(function() uSpawnToy:InvokeServer('CreatureBlobman', hrp.CFrame * CFrame.new(0, 100000000, 10), Vector3.zero) end)
+                        else
+                            local seat = blob:FindFirstChildWhichIsA('VehicleSeat')
+                            if seat and not seat.Occupant then
+                                seat:Sit(hum)
+                                uRS.CharacterEvents.RagdollRemote:FireServer(hrp, 0.01)
+                            end
+                        end
+                    end
+                end
+                task.wait(0.1)
+            end
+        end)
+    end)
+
+    -- ==========================================
+    -- 2. TARGET TAB (LOOPS & ORBIT)
+    -- ==========================================
+    makeSection(targetTab, "Unstable Loops")
+    local selectedUnstableTarget = nil
+    state.makePlayerDropdown(targetTab, "Unstable Target", function(n) selectedUnstableTarget = n end)
+
+    -- [2.1] XOCU Loop Grab Kick
+    local xocuActive = false
+    makeToggle(targetTab, "XOCU Loop Grab Kick", false, function(on)
+        xocuActive = on
+        if not on or not selectedUnstableTarget then return end
+        task.spawn(function()
+            local myChar = uLP.Character
+            local myRoot = myChar and myChar:FindFirstChild('HumanoidRootPart')
+            if not myRoot then return end
+            local savedPos = myRoot.CFrame
+            local dragging = false
+            local grabStartTime = 0
+
+            while xocuActive do
+                local target = uPlayers:FindFirstChild(selectedUnstableTarget)
+                if not target or not target.Character then task.wait(0.1) continue end
+                
+                local tChar = target.Character
+                local tRoot = tChar:FindFirstChild('HumanoidRootPart')
+                local tHum = tChar:FindFirstChild('Humanoid')
+                local seat = myChar and myChar.Humanoid.SeatPart
+
+                if tRoot and tHum and tHum.Health > 0 then
+                    tRoot.AssemblyLinearVelocity = Vector3.zero
+                    tRoot.Velocity = Vector3.zero
+
+                    if seat then
+                        local blobman = seat.Parent
+                        local remoteFolder = blobman:FindFirstChild('BlobmanSeatAndOwnerScript')
+                        local grab = remoteFolder and remoteFolder:FindFirstChild('CreatureGrab')
+                        local drop = remoteFolder and remoteFolder:FindFirstChild('CreatureDrop')
+                        local L_Det = blobman:FindFirstChild('LeftDetector')
+                        local R_Det = blobman:FindFirstChild('RightDetector')
+                        local L_Weld = L_Det and (L_Det:FindFirstChild('LeftWeld') or L_Det:FindFirstChild('RigidConstraint'))
+                        local R_Weld = R_Det and (R_Det:FindFirstChild('RightWeld') or R_Det:FindFirstChild('RigidConstraint'))
+                        
+                        if grab and drop and L_Weld and R_Weld then
+                            pcall(function()
+                                grab:FireServer(L_Det, tRoot, L_Weld)
+                                grab:FireServer(R_Det, tRoot, R_Weld)
+                                drop:FireServer(L_Weld, tRoot)
+                                drop:FireServer(R_Weld, tRoot)
+                            end)
+                        end
+                    end
+
+                    if not dragging then
+                        myRoot.CFrame = tRoot.CFrame
+                        pcall(function()
+                            tHum.PlatformStand = true
+                            uSetNetOwner:FireServer(tRoot, myRoot.CFrame)
+                            uRS.GrabEvents.CreateGrabLine:FireServer(tRoot, Vector3.zero, tRoot.Position, false)
+                        end)
+                        if grabStartTime == 0 then grabStartTime = tick() end
+                        if tick() - grabStartTime > 0.3 then
+                            dragging = true
+                            grabStartTime = 0
+                        end
+                    else
+                        local lockPos = savedPos * CFrame.new(0, 25, 0)
+                        myRoot.CFrame = savedPos
+                        tRoot.CFrame = lockPos
+                        pcall(function()
+                            tHum.PlatformStand = true
+                            uSetNetOwner:FireServer(tRoot, lockPos)
+                            uDestroyLine:FireServer(tRoot)
+                            uRS.GrabEvents.CreateGrabLine:FireServer(tRoot, Vector3.zero, tRoot.Position, false)
+                        end)
+                    end
+                else
+                    dragging = false
+                    grabStartTime = 0
+                end
+                uRun.Heartbeat:Wait()
+            end
+            if myRoot and savedPos then myRoot.CFrame = savedPos end
+        end)
+    end)
+
+    -- [2.2] Orbit Blobman
+    local OrbitRadius, OrbitSpeed = 10, 2
+    local orbitActive = false
+    makeSlider(targetTab, "Orbit Radius", 10, 5, 35, function(v) OrbitRadius = v end)
+    makeSlider(targetTab, "Orbit Speed", 2, 1, 40, function(v) OrbitSpeed = v end)
+    
+    makeToggle(targetTab, "Blobman Orbit", false, function(on)
+        orbitActive = on
+        if not on or not selectedUnstableTarget then return end
+        
+        local function findMountedBlob()
+            local hum = uLP.Character and uLP.Character:FindFirstChild('Humanoid')
+            return (hum and hum.SeatPart and hum.SeatPart.Parent.Name == 'CreatureBlobman') and hum.SeatPart.Parent or nil
+        end
+        local targetPlr = uPlayers:FindFirstChild(selectedUnstableTarget)
+        local targetHRP = targetPlr and targetPlr.Character and targetPlr.Character:FindFirstChild('HumanoidRootPart')
+        if not targetHRP then return end
+        if targetHRP:FindFirstChild('OrbitBodyPos') then targetHRP.OrbitBodyPos:Destroy() end
+
+        local bodyPos = Instance.new('BodyPosition', targetHRP)
+        bodyPos.Name = 'OrbitBodyPos'
+        bodyPos.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bodyPos.Position = targetHRP.Position + Vector3.new(0, 20, 0)
+        bodyPos.P = 5000 bodyPos.D = 100
+        local rot = 0
+
+        uRun.Heartbeat:Connect(function()
+            if not orbitActive then return end
+            local MyBlob = findMountedBlob()
+            local blobRoot = MyBlob and (MyBlob:FindFirstChild('HumanoidRootPart') or MyBlob.PrimaryPart)
+            local bPos = targetHRP and targetHRP:FindFirstChild('OrbitBodyPos')
+            if blobRoot and bPos then
+                rot = rot + OrbitSpeed
+                blobRoot.CFrame = CFrame.new(bPos.Position) * CFrame.Angles(0, math.rad(rot), 0) * CFrame.new(OrbitRadius, 0, 0)
+                blobRoot.Velocity = Vector3.zero
+            end
+        end)
+    end)
+
+    -- ==========================================
+    -- 3. VISUAL TAB (SHADERS & SKYBOXES & GRAB LINE)
+    -- ==========================================
+    makeSection(visualTab, "Unstable Shaders")
+    
+    local ShaderPresets = {
+        ["Classic"] = { Brightness=2.25, ClockTime=17.55, ExposureCompensation=0.1, Ambient=Color3.fromRGB(120,120,120), OutdoorAmbient=Color3.fromRGB(200,200,200), ColorShift_Top=Color3.fromRGB(0,0,0), ColorShift_Bottom=Color3.fromRGB(0,0,0) },
+        ["Twilight"] = { Brightness=3.5, ClockTime=6.7, ExposureCompensation=0.24, Ambient=Color3.fromRGB(59,33,27), OutdoorAmbient=Color3.fromRGB(34,0,49), ColorShift_Top=Color3.fromRGB(240,127,14), ColorShift_Bottom=Color3.fromRGB(11,0,20) },
+        ["Luminous"] = { Brightness=2, ClockTime=10, ExposureCompensation=0.5, Ambient=Color3.fromRGB(50,50,50), OutdoorAmbient=Color3.fromRGB(150,150,150), ColorShift_Top=Color3.fromRGB(250,250,250), ColorShift_Bottom=Color3.fromRGB(250,250,250) },
+        ["Sandstorm"] = { Brightness=2.5, ClockTime=7, ExposureCompensation=0.5, Ambient=Color3.fromRGB(80,40,10), OutdoorAmbient=Color3.fromRGB(100,50,10), ColorShift_Top=Color3.fromRGB(240,127,14), ColorShift_Bottom=Color3.fromRGB(240,120,20) },
+        ["Arctic"] = { Brightness=1.8, ClockTime=10, ExposureCompensation=0, Ambient=Color3.fromRGB(0,50,100), OutdoorAmbient=Color3.fromRGB(150,170,200), ColorShift_Top=Color3.fromRGB(0,0,0), ColorShift_Bottom=Color3.fromRGB(0,0,0) }
+    }
+
+    local function ApplyShader(shaderType)
+        for _, child in pairs(uLighting:GetChildren()) do
+            if child:IsA('PostEffect') or child:IsA('Sky') or child:IsA('Atmosphere') then child:Destroy() end
+        end
+        local p = ShaderPresets[shaderType]
+        if p then
+            uLighting.Brightness = p.Brightness or 2
+            uLighting.ClockTime = p.ClockTime or 14
+            uLighting.ExposureCompensation = p.ExposureCompensation or 0
+            uLighting.Ambient = p.Ambient or Color3.fromRGB(120,120,120)
+            uLighting.OutdoorAmbient = p.OutdoorAmbient or Color3.fromRGB(200,200,200)
+            uLighting.ColorShift_Bottom = p.ColorShift_Bottom or Color3.fromRGB(0,0,0)
+            uLighting.ColorShift_Top = p.ColorShift_Top or Color3.fromRGB(0,0,0)
+            
+            if shaderType == "Arctic" then
+                local atmos = Instance.new('Atmosphere', uLighting)
+                atmos.Density = 0.45 atmos.Color = Color3.fromRGB(180, 200, 255) atmos.Decay = Color3.fromRGB(255, 255, 255) atmos.Glare = 0.6
+                local cc = Instance.new('ColorCorrectionEffect', uLighting)
+                cc.Saturation = -0.3 cc.Contrast = 0.2 cc.TintColor = Color3.fromRGB(220, 240, 255)
+                local bloom = Instance.new('BloomEffect', uLighting)
+                bloom.Intensity = 0.8 bloom.Size = 24 bloom.Threshold = 0.6
+            end
+        end
+    end
+
+    makeDropdown(visualTab, "Shader Preset  ", {"Classic", "Twilight", "Luminous", "Sandstorm", "Arctic"}, "Classic", function(v) ApplyShader(v) end)
+    
+    makeButton(visualTab, "Reset Shaders", function()
+        for _, child in pairs(uLighting:GetChildren()) do
+            if child:IsA('PostEffect') or child:IsA('Sky') or child:IsA('Atmosphere') then child:Destroy() end
+        end
+        uLighting.Brightness = 2 uLighting.ClockTime = 14 uLighting.ExposureCompensation = 0 uLighting.ColorShift_Bottom = Color3.fromRGB(0,0,0) uLighting.ColorShift_Top = Color3.fromRGB(0,0,0)
+    end)
+
+    makeSection(visualTab, "Unstable Grab Line")
+    local textureIds = {
+        ['Default'] = '', ['Chain'] = 'rbxassetid://81358145120405', ['Chain 2'] = 'rbxassetid://132910145874066',
+        ['Rope'] = 'rbxassetid://78999022056924', ['Spring'] = 'rbxassetid://18837732116', ['Circle'] = 'rbxassetid://5367817750',
+        ['Heart'] = 'rbxassetid://89015294175898', ['Star'] = 'rbxassetid://5639840603', ['Fire'] = 'rbxassetid://18654087326',
+        ['Lazar'] = 'rbxassetid://8922958725', ['Arrow'] = 'rbxassetid://9006027964'
+    }
+    
+    local selectedTexture = 'Default'
+    local beamColorEnabled = false
+    local beamColor0 = Color3.fromRGB(255,255,255)
+    local beamColor1 = Color3.fromRGB(255,255,255)
+    
+    local function getBeamPart() local gp = uWS:FindFirstChild('GrabParts') return gp and gp:FindFirstChild('BeamPart') end
+    local function applyLineSettings()
+        local beamPart = getBeamPart()
+        if not beamPart then return end
+        local beam = beamPart:FindFirstChild('GrabBeam')
+        if not beam or not beam:IsA('Beam') then return end
+        
+        beam.Texture = textureIds[selectedTexture] or ''
+        if beamColorEnabled then beam.Color = ColorSequence.new(beamColor0, beamColor1) end
+    end
+
+    uWS.DescendantAdded:Connect(function(d)
+        if d:IsA('Beam') and d.Name == 'GrabBeam' then task.defer(applyLineSettings) end
+    end)
+
+    makeDropdown(visualTab, "Line Texture", {"Default", "Chain", "Chain 2", "Rope", "Spring", "Circle", "Heart", "Star", "Fire", "Lazar", "Arrow"}, "Default", function(v)
+        selectedTexture = v
+        applyLineSettings()
+    end)
+
+    makeToggle(visualTab, "Enable Line Color", false, function(on)
+        beamColorEnabled = on
+        applyLineSettings()
+    end)
+
+    -- Gọi hàm áp dụng line lần đầu
+    task.spawn(function()
+        while true do
+            task.wait(1)
+            applyLineSettings()
+        end
+    end)
+end
+
 
 print("[BHUB v3.0] Port complete. Check Console for executor info.")
 
