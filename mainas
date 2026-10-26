@@ -288,7 +288,8 @@ end
 function GetPlot()
     if not workspace_.PlotItems.PlayersInPlots:FindFirstChild(localPlayer.Name) then return false end
     for _, plot in workspace_.Plots:GetChildren() do
-        local thisPlotsOwners = plot:FindFirstChild("PlotSign"):FindFirstChild("ThisPlotsOwners")
+                local plotSign = plot:FindFirstChild("PlotSign")
+        local thisPlotsOwners = plotSign and plotSign:FindFirstChild("ThisPlotsOwners")
         if thisPlotsOwners then
             for _, v in thisPlotsOwners:GetChildren() do
                 if v.Value ~= localPlayer.Name then continue end
@@ -485,7 +486,7 @@ function StartCrazyLine(interval)
     task.spawn(function()
         while state.crazyLineRunning do
             for _, p in players:GetPlayers() do
-                                if p ~= localPlayer and not (state.isWL and state.isWL(p)) and p.Character then
+                if p ~= localPlayer and not (state.isWL and state.isWL(p)) and p.Character then
                     local _, hrp, hum = GetHRH(p.Character)
                     if hrp and hum and hum.Health > 0 then
                         pcall(function() createGrabLine:FireServer(hrp, CFrame.new(0, 0, 0)) end)
@@ -493,6 +494,7 @@ function StartCrazyLine(interval)
                     end
                 end
             end
+            task.wait(interval or 0.1)
         end
     end)
 end
@@ -751,7 +753,7 @@ function LoopAllBlobman()
                                             task.spawn(function() task.wait(0.25) if bp then bp:Destroy() end end)
                                         elseif state.loopBlobMethod == "Kill" then
                                             cr:FireServer(lw)
-                                            tHum:ChangeState("Dead")
+                                            pcall(function() tHum:ChangeState(Enum.HumanoidStateType.Dead) end)
                                         end
                                     end
                                     if hrp then Teleport(hrp, origCF, CFrame.new(0, 0, 0)) end
@@ -2210,7 +2212,12 @@ makeCtrlBtn("X", -34, function()
 
     -- 2. HUD boxes bay lên + stagger từng cái (tạo hiệu ứng cascade)
     if wmGui then
-        local hudBoxes = {wmBox, hotkeyBox, pBox, statsBox}
+        local hudBoxes = {
+    wmGui:FindFirstChild("WM_HUD"),
+    wmGui:FindFirstChild("HK_HUD"),
+    wmGui:FindFirstChild("PL_HUD"),
+    wmGui:FindFirstChild("SS_HUD"),
+}
         for i, box in ipairs(hudBoxes) do
             if box and box.Parent then
                 pending = pending + 1
@@ -2907,8 +2914,7 @@ makeToggle(serverTab, "Crazy Line", false, function(on)
     if on then StartCrazyLine(0.1) else StopCrazyLine() end
 end)
 
-makeSection(serverTab, "Flood / Lag")
-makeButton(serverTab, "FLOOD (Tsunami Ocean)", Flood, true)
+
 makeSection(serverTab, "Packet Lag")
 makeInput(serverTab, "Packet Text", state.packetText, function(v) state.packetText = v end)
 makeSlider(serverTab, "Packet Amount", 50000, 1, 100000, function(v) state.packetAmount = v end)
@@ -3537,7 +3543,7 @@ function createSnowEffect(parent, density)
     layer.ZIndex = 1
     layer.Parent = parent
 
-    function spawnFlake()
+        local function spawnFlake()
         if not layer.Parent then return end
         local size = math.random(2, 4)
         local flake = Instance.new("Frame")
@@ -5051,6 +5057,7 @@ makeButton(customTab, "Delete Grabbed Player's Limbs (phím J)", function() task
 makeButton(customTab, "Delete Mouse Player's Limbs (phím K)", function() task.spawn(DeleteMouseLimbs) end)
 
 -- ---------- LIMB TRANSPARENCY (chi của chính bạn) ----------
+state.limbT = {on = false, value = 0.3}
 local LIMB_NAMES = {"Left Arm", "Right Arm", "Left Leg", "Right Leg"}
 
 runService.RenderStepped:Connect(function()
@@ -5882,7 +5889,7 @@ function _G.RYZEColorPicker(parent, text, default, cb)
     local labels = {}
     local sCol = {Color3.fromRGB(255,80,80), Color3.fromRGB(80,255,80), Color3.fromRGB(80,80,255)}
     local sLbl = {"R", "G", "B"}
-    function refresh()
+        local function refresh()
         prev.BackgroundColor3 = Color3.fromRGB(cur[1], cur[2], cur[3])
         for i=1,3 do if labels[i] then labels[i].Text = tostring(cur[i]) end end
         if cb then pcall(cb, prev.BackgroundColor3) end
@@ -5932,7 +5939,7 @@ function _G.RYZEColorPicker(parent, text, default, cb)
         btn.Text = ""
         btn.Parent = bar
         local dragging, idx = false, i
-        function upd(mx)
+                local function upd(mx)
             local abs = bar.AbsolutePosition.X
             local sz = bar.AbsoluteSize.X
             if sz <= 0 then return end
@@ -7031,7 +7038,7 @@ print(string.format("[RYZE] Executor: %s | PC=%s | Mobile=%s | hookOK=%s (%s)",
 -- ==========================================
 -- SILENT AIM (conditional on hook)
 -- ==========================================
-if allowHook then
+if false then -- tắt: Module 13 đã có Silent Aim V2
     state.silent = {enabled = false, distance = 41, part = "Head", wallMode = "Wall"}
     local oldNamecall
     oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(self, ...)
@@ -7966,7 +7973,8 @@ do
     end)
 
     -- 6. Anti Input Lag — kiểm tra CanSpawnToy
-    local antiInputLagActive, antiInputLagTask = false, nil
+        local antiInputLagActive, antiInputLagTask = false, nil
+    local SelectedInputToy = "FoodHamburger"
     -- ===== AUTO: expose bật Anti Input Lag từ ngoài (packet lag detector) =====
 _G.RYZEEnableAntiInputLag = function()
     if antiInputLagActive then return end
@@ -8005,7 +8013,7 @@ _G.RYZEEnableAntiInputLag = function()
     end)
     if _G.RYZESyncToggleVisual then _G.RYZESyncToggleVisual("Anti Input Lag", true) end
 end
-    local SelectedInputToy = "FoodHamburger"
+
     local toyList = {"FoodHamburger","FoodCoconut","FoodPizzaCheese","FoodHotdog","FoodBread","FoodDippyEgg","FoodMayonnaise","FoodFrenchFries","FoodMeatStick","FoodDonut","FoodCakePink","PoopPile","InstrumentVoiceMicrophone","CupMugWhite"}
     makeDropdown(defenseTab, "Input Lag Toy", toyList, "FoodHamburger", function(v) SelectedInputToy = v end)
     makeToggle(defenseTab, "Anti Input Lag", false, function(Value)
@@ -8276,204 +8284,204 @@ end
 -- Phát hiện bị kick → lưu vị trí → loop TP về + freeze
 -- ==========================================
 do
-    local LP = localPlayer
-    local WS = workspace_
-    local Plrs = players
-    local RUN = runService
+    local LP, RUN, Plrs, WS = localPlayer, runService, players, workspace_
+
+    local R6 = {"HumanoidRootPart","Torso","Head","Left Arm","Right Arm","Left Leg","Right Leg"}
+    local HISTORY_WINDOW = 1.5    -- giây lưu lịch sử vị trí
+    local MAX_XZ   = 5000         -- X/Z vượt mức này = bị đẩy
+    local MAX_Y    = 60000        -- Y cao vượt mức này (platform 50000 vẫn an toàn)
+    local MIN_Y    = -250
+    local MAX_VEL  = 6000         -- vận tốc vượt mức này = fling
+    local MAX_FREEZE = 2.5        -- thời gian giữ tối đa mỗi lần kích hoạt
+    local COOLDOWN = 1.0
 
     local agk = {
         enabled = false,
-        safeCF = nil,
-        detecting = false,
-        kicker = nil,
-        kickerUntil = 0,
+        strict = false,
+        frozen = false,
+        history = {},
         conns = {},
-        loopTask = nil,
-        lastCheck = 0,
+        lastNotify = 0,
+        cooldownUntil = 0,
     }
 
-    -- Ngưỡng phát hiện
-    local Y_HIGH = 10000          -- TP lên trên 10000 = kick
-    local Y_FALL = -50            -- rơi xuống dưới -50 bất thường
-    local VEL_FLING = 800         -- velocity > 800 = fling
-    local SUSPICIOUS_WINDOW = 3   -- giây: ai TP tới gần mình trong 3s → nghi kicker
-
-    local function setKicker(p, reason)
-        if not p then return end
-        agk.kicker = p
-        agk.kickerUntil = tick() + 5
-        pcall(Notify, "Anti Get Kicked",
-            "Kicker: " .. p.DisplayName .. " (@" .. p.Name .. ") | " .. reason,
-            "kick", 5)
+    local function getHRP()
+        local c = LP.Character
+        return c and c:FindFirstChild("HumanoidRootPart"), c and c:FindFirstChildOfClass("Humanoid"), c
     end
 
-    local function findSuspiciousNearby(hrp)
-        local best, bestD = nil, math.huge
-        for _, p in ipairs(Plrs:GetPlayers()) do
-            if p ~= LP and p.Character then
-                local tHRP = p.Character:FindFirstChild("HumanoidRootPart")
-                if tHRP then
-                    local d = (tHRP.Position - hrp.Position).Magnitude
-                    if d < 8 and d < bestD then
-                        bestD = d
-                        best = p
-                    end
+    -- Trả về tên người đang giữ ownership nhân vật mình (bỏ qua whitelist)
+    local function getForeignOwner(char)
+        if not char then return nil end
+        for _, name in ipairs(R6) do
+            local part = char:FindFirstChild(name)
+            local po = part and part:FindFirstChild("PartOwner")
+            if po and po.Value ~= "" and po.Value ~= LP.Name then
+                local p = Plrs:FindFirstChild(po.Value)
+                if not (p and state.isWL and state.isWL(p)) then
+                    return po.Value
                 end
             end
         end
-        return best
+        return nil
     end
 
-    local function saveSafeCF(hrp)
-        -- chỉ lưu khi ở vị trí bình thường
-        if hrp.Position.Y > -30 and hrp.Position.Y < 500
-            and hrp.AssemblyLinearVelocity.Magnitude < 200 then
-            agk.safeCF = hrp.CFrame
+    local function isBadPos(hrp)
+        local pos = hrp.Position
+        if pos ~= pos then return true, "NaN" end
+        if math.abs(pos.X) > MAX_XZ or math.abs(pos.Z) > MAX_XZ then
+            return true, "Bi day xa (X/Z)"
+        end
+        if pos.Y > MAX_Y then return true, "Bi day len cao" end
+        if pos.Y < MIN_Y and hrp.AssemblyLinearVelocity.Y < -50 then
+            return true, "Roi bat thuong"
+        end
+        if hrp.AssemblyLinearVelocity.Magnitude > MAX_VEL then
+            return true, "Fling"
+        end
+        return false
+    end
+
+    local function pushHistory(hrp)
+        local now = tick()
+        table.insert(agk.history, {t = now, cf = hrp.CFrame})
+        while #agk.history > 0 and now - agk.history[1].t > HISTORY_WINDOW do
+            table.remove(agk.history, 1)
         end
     end
 
-    local function triggerAntiKick(reason, kicker)
-        if not agk.enabled then return end
-        local char = LP.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
+    local function getSafeCF()
+        local first = agk.history[1]
+        return first and first.cf or nil
+    end
+
+    local function release(hrp)
+        if hrp and hrp.Parent then
+            hrp.Anchored = false
+            hrp.AssemblyLinearVelocity = Vector3.zero
+            hrp.AssemblyAngularVelocity = Vector3.zero
+        end
+    end
+
+    local function trigger(reason, kickerName)
+        if not agk.enabled or agk.frozen or tick() < agk.cooldownUntil then return end
+        local hrp, hum = getHRP()
         if not (hrp and hum and hum.Health > 0) then return end
-        if not agk.safeCF then return end
+        local safe = getSafeCF()
+        if not safe then return end
 
-        agk.detecting = true
+        agk.frozen = true
 
-        -- Xác định kicker
-        local who = kicker or findSuspiciousNearby(hrp)
-        if who then setKicker(who, reason) end
+        if tick() - agk.lastNotify > 3 then
+            agk.lastNotify = tick()
+            local who = "Khong ro"
+            local p = kickerName and Plrs:FindFirstChild(kickerName)
+            if p then who = p.DisplayName .. " (@" .. p.Name .. ")" end
+            pcall(Notify, "Anti Get Kicked", reason .. " | Kicker: " .. who, "kick", 5)
+        end
 
-        -- Loop TP về vị trí an toàn + freeze
-        if agk.loopTask then task.cancel(agk.loopTask) end
-        agk.loopTask = task.spawn(function()
+        task.spawn(function()
             local t0 = tick()
-            while agk.enabled and agk.detecting and tick() - t0 < 3 do
-                local c = LP.Character
-                local h = c and c:FindFirstChild("HumanoidRootPart")
-                local hu = c and c:FindFirstChildOfClass("Humanoid")
+            local calmSince = nil
+            while agk.enabled and tick() - t0 < MAX_FREEZE do
+                local h, hu, ch = getHRP()
                 if not (h and hu and hu.Health > 0) then break end
 
-                -- Nếu vẫn bị đẩy ra khỏi vùng an toàn → kéo về
-                local dist = (h.Position - agk.safeCF.Position).Magnitude
-                if dist > 8 or h.Position.Y > Y_HIGH or h.Position.Y < Y_FALL then
-                    pcall(function()
-                        h.Anchored = true
-                        h.CFrame = agk.safeCF
-                        h.AssemblyLinearVelocity = Vector3.zero
-                        h.AssemblyAngularVelocity = Vector3.zero
-                    end)
-                    task.wait(0.15)
-                    pcall(function() h.Anchored = false end)
+                h.Anchored = true
+                h.CFrame = safe
+                h.AssemblyLinearVelocity = Vector3.zero
+                h.AssemblyAngularVelocity = Vector3.zero
+
+                pcall(function() setNetworkOwner:FireServer(h, safe) end)
+                if struggleRemote then pcall(function() struggleRemote:FireServer(LP) end) end
+                if ragdollRemote then pcall(function() ragdollRemote:FireServer(h, 0) end) end
+
+                -- Het nguy hiem: khong con ai chiem quyen + dung vi tri an toan
+                local foreign = getForeignOwner(ch)
+                local near = (h.Position - safe.Position).Magnitude < 6
+                if not foreign and near then
+                    calmSince = calmSince or tick()
+                    if tick() - calmSince > 0.4 then break end
+                else
+                    calmSince = nil
                 end
                 RUN.Heartbeat:Wait()
             end
-            agk.detecting = false
+
+            local h = getHRP()
+            release(h)
+            table.clear(agk.history)
+            agk.cooldownUntil = tick() + COOLDOWN
+            agk.frozen = false
         end)
     end
 
     local function onHeartbeat()
-        if not agk.enabled then return end
-        local now = tick()
-        if now - agk.lastCheck < 0.1 then return end
-        agk.lastCheck = now
-
-        local char = LP.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not agk.enabled or agk.frozen then return end
+        local hrp, hum, char = getHRP()
         if not (hrp and hum and hum.Health > 0) then return end
 
-        -- Nếu đang freeze vì kick thì không lưu lại
-        if agk.detecting then return end
+        local foreign = getForeignOwner(char)
+        local bad, reason = isBadPos(hrp)
 
-        saveSafeCF(hrp)
-
-        local pos = hrp.Position
-        local vel = hrp.AssemblyLinearVelocity
-
-        -- 1. TP lên cao > 10000
-        if pos.Y > Y_HIGH then
-            triggerAntiKick("TP cao (" .. math.floor(pos.Y) .. ")")
-            return
-        end
-
-        -- 2. Rơi bất thường (đang lơ lửng rồi rớt)
-        if pos.Y < Y_FALL and vel.Y < -50 then
-            triggerAntiKick("Rơi bất thường (Y=" .. math.floor(pos.Y) .. ")")
-            return
-        end
-
-        -- 3. Fling ra xa
-        if vel.Magnitude > VEL_FLING then
-            triggerAntiKick("Fling (vel=" .. math.floor(vel.Magnitude) .. ")")
-            return
-        end
-    end
-
-    -- Phát hiện ai TP tới gần mình rồi bắt đầu kick
-    local function onPlayerTeleportCheck()
-        if not agk.enabled then return end
-        local char = LP.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp then return end
-
-        for _, p in ipairs(Plrs:GetPlayers()) do
-            if p ~= LP and p.Character then
-                local tHRP = p.Character:FindFirstChild("HumanoidRootPart")
-                if tHRP then
-                    local d = (tHRP.Position - hrp.Position).Magnitude
-                    if d < 5 then
-                        -- ai đó TP tới sát mình → đánh dấu nghi kicker trong 3s
-                        if not agk.kicker or agk.kicker ~= p or tick() > agk.kickerUntil then
-                            agk.kicker = p
-                            agk.kickerUntil = tick() + SUSPICIOUS_WINDOW
+        if bad then
+            -- tim kicker: uu tien PartOwner, khong co thi tim nguoi gan nhat vi tri cu
+            if not foreign then
+                local safe = getSafeCF()
+                local bestD = 25
+                if safe then
+                    for _, p in ipairs(Plrs:GetPlayers()) do
+                        if p ~= LP and p.Character then
+                            local th = p.Character:FindFirstChild("HumanoidRootPart")
+                            if th then
+                                local d = (th.Position - safe.Position).Magnitude
+                                if d < bestD then bestD = d foreign = p.Name end
+                            end
                         end
                     end
                 end
             end
+            trigger(reason, foreign)
+            return
         end
+
+        if agk.strict and foreign then
+            trigger("Co nguoi chiem quyen nhan vat", foreign)
+            return
+        end
+
+        -- chi luu lich su khi an toan va khong bi ai chiem quyen
+        if not foreign then pushHistory(hrp) end
     end
 
     local function enable()
         if agk.enabled then return end
         agk.enabled = true
-        agk.safeCF = nil
-        agk.detecting = false
-        agk.kicker = nil
-
-        -- Lưu vị trí an toàn ban đầu
-        local char = LP.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp then agk.safeCF = hrp.CFrame end
-
+        agk.frozen = false
+        table.clear(agk.history)
         agk.conns.hb = RUN.Heartbeat:Connect(onHeartbeat)
-        agk.conns.tp = RUN.Heartbeat:Connect(onPlayerTeleportCheck)
         agk.conns.char = LP.CharacterAdded:Connect(function()
-            task.wait(1)
-            local c = LP.Character
-            local h = c and c:FindFirstChild("HumanoidRootPart")
-            if h then agk.safeCF = h.CFrame end
+            table.clear(agk.history)
+            agk.frozen = false
         end)
     end
 
     local function disable()
         agk.enabled = false
+        agk.frozen = false
         for _, c in pairs(agk.conns) do
             if typeof(c) == "RBXScriptConnection" then c:Disconnect() end
         end
         table.clear(agk.conns)
-        if agk.loopTask then task.cancel(agk.loopTask) agk.loopTask = nil end
-        -- nhả anchor nếu đang freeze
-        local char = LP.Character
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if hrp and hrp.Anchored then hrp.Anchored = false end
-        agk.detecting = false
+        table.clear(agk.history)
+        release((getHRP()))
     end
 
     makeToggle(defenseTab, "Anti Get Kicked", false, function(on)
         if on then enable() else disable() end
+    end)
+    makeToggle(defenseTab, "Anti Get Kicked: Strict", false, function(on)
+        agk.strict = on
     end)
 
     gui.Destroying:Connect(disable)
@@ -9485,12 +9493,14 @@ end)
 
     -- [2.2] Orbit Blobman
     local OrbitRadius, OrbitSpeed = 10, 2
-    local orbitActive = false
+       local orbitActive = false
+    local orbitConn = nil
     makeSlider(targetTab, "Orbit Radius", 10, 5, 35, function(v) OrbitRadius = v end)
     makeSlider(targetTab, "Orbit Speed", 2, 1, 40, function(v) OrbitSpeed = v end)
     
     makeToggle(targetTab, "Blobman Orbit", false, function(on)
-        orbitActive = on
+                orbitActive = on
+        if orbitConn then orbitConn:Disconnect() orbitConn = nil end
         if not on or not selectedUnstableTarget then return end
         
         local function findMountedBlob()
@@ -9509,7 +9519,7 @@ end)
         bodyPos.P = 5000 bodyPos.D = 100
         local rot = 0
 
-        uRun.Heartbeat:Connect(function()
+                orbitConn = uRun.Heartbeat:Connect(function()
             if not orbitActive then return end
             local MyBlob = findMountedBlob()
             local blobRoot = MyBlob and (MyBlob:FindFirstChild('HumanoidRootPart') or MyBlob.PrimaryPart)
@@ -9560,7 +9570,7 @@ end)
         end
     end
 
-    makeDropdown(visualTab, "Shader Preset  ", {"Classic", "Twilight", "Luminous", "Sandstorm", "Arctic"}, "Classic", function(v) ApplyShader(v) end)
+    makeDropdown(visualTab, "Unstable Shader", {"Classic", "Twilight", "Luminous", "Sandstorm", "Arctic"}, "Classic", function(v) ApplyShader(v) end)
     
     makeButton(visualTab, "Reset Shaders", function()
         for _, child in pairs(uLighting:GetChildren()) do
