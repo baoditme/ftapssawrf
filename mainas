@@ -468,7 +468,10 @@ function StartLineLag()
         while state.lineLagRunning do
             for _ = 1, state.lineCount do
                 if not state.lineLagRunning then break end
-                pcall(function() createGrabLine:FireServer(workspace_.SpawnLocation, CFrame.new(-2.3e9, 0, -2.3e9)) end)
+                local rx = math.random(-2140500000, 2104000001)
+                local rz = math.random(-2.11e9, 2101000000)
+                _G.RYZE_LastSelfLineFire = tick()
+                pcall(function() createGrabLine:FireServer(workspace_.SpawnLocation, CFrame.new(rx, 0, rz)) end)
             end
             task.wait(0.001)
         end
@@ -509,6 +512,7 @@ function StartPacketLag()
     state.packetLagRunning = true
     task.spawn(function()
         while state.packetLagRunning do
+            _G.RYZE_LastSelfPacketFire = tick()
             pcall(function() extendGrabLine:FireServer(string.rep(state.packetText, state.packetAmount)) end)
             task.wait(state.packetInterval)
         end
@@ -518,6 +522,7 @@ end
 function StopPacketLag() state.packetLagRunning = false end
 
 function SendOnePacket()
+    _G.RYZE_LastSelfPacketFire = tick()
     pcall(function() extendGrabLine:FireServer(string.rep(state.packetText, state.packetAmount)) end)
 end
 
@@ -769,12 +774,93 @@ function LoopAllBlobman()
 end
 
 -- ==========================================
--- ISINPLOT (bắt buộc — bản gốc dùng hàm này)
+-- ISINPLOT (PORTED 100% from PoopHub/Resonance — robust multi-format)
 -- ==========================================
-function IsInPlot(player)
-    if not player then return false end
-    local ip = player:FindFirstChild("InPlot")
-    return ip and ip:IsA("BoolValue") and ip.Value or false
+function IsInPlot(arg)
+    if not arg then return false end
+    local inPlot = arg:FindFirstChild("InPlot")
+    if inPlot and inPlot:IsA("BoolValue") then return inPlot.Value end
+    local attr = arg:GetAttribute("InPlot")
+    if typeof(attr) == "boolean" then return attr end
+    local character = arg.Character
+    if not character then return false end
+    local hrp = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("Torso")
+    if not hrp then return false end
+    local plots = workspace:FindFirstChild("Plots") or workspace:FindFirstChild("PlayerPlots") or workspace:FindFirstChild("Houses") or workspace:FindFirstChild("PlotsFolder")
+    if not plots then return false end
+    local plot = nil
+    for _, child in ipairs(plots:GetChildren()) do
+        if child:IsA("Model") then
+            local a2 = child:GetAttribute("OwnerUserId") or child:GetAttribute("OwnerId")
+            local hit = (typeof(a2) == "number" and a2 == arg.UserId) and true or false
+            if not hit then
+                local a3 = child:GetAttribute("OwnerName")
+                if typeof(a3) == "string" and a3 == arg.Name then hit = true end
+            end
+            if not hit then
+                local own = child:FindFirstChild("Owner") or child:FindFirstChild("PlotOwner")
+                if own then
+                    if (own:IsA("ObjectValue") and own.Value == arg) or (own:IsA("IntValue") and own.Value == arg.UserId) or (own:IsA("StringValue") and own.Value == arg.Name) then hit = true end
+                end
+            end
+            if not hit then
+                local oid = child:FindFirstChild("OwnerUserId") or child:FindFirstChild("OwnerId")
+                if oid and oid:IsA("IntValue") and oid.Value == arg.UserId then hit = true end
+            end
+            if not hit then
+                if child.Name == arg.Name or child.Name == tostring(arg.UserId) then hit = true end
+            end
+            if hit then plot = child break else plot = nil end
+        else plot = nil end
+    end
+    if not plot then
+        for _, d in ipairs(plots:GetDescendants()) do
+            if d:IsA("Model") then
+                local a2 = d:GetAttribute("OwnerUserId") or d:GetAttribute("OwnerId")
+                local hit = (typeof(a2) == "number" and a2 == arg.UserId) and true or false
+                if not hit then
+                    local a3 = d:GetAttribute("OwnerName")
+                    if typeof(a3) == "string" and a3 == arg.Name then hit = true end
+                end
+                if not hit then
+                    local own = d:FindFirstChild("Owner") or d:FindFirstChild("PlotOwner")
+                    if own then
+                        if (own:IsA("ObjectValue") and own.Value == arg) or (own:IsA("IntValue") and own.Value == arg.UserId) or (own:IsA("StringValue") and own.Value == arg.Name) then hit = true end
+                    end
+                end
+                if not hit then
+                    local oid = d:FindFirstChild("OwnerUserId") or d:FindFirstChild("OwnerId")
+                    if oid and oid:IsA("IntValue") and oid.Value == arg.UserId then hit = true end
+                end
+                if not hit then
+                    if d.Name == arg.Name or d.Name == tostring(arg.UserId) then hit = true end
+                end
+                if hit then plot = d break end
+            end
+        end
+    end
+    if not plot then return false end
+    local areaPart = nil
+    for _, name in ipairs({"PlotArea", "Area", "Region", "Bounds", "Boundary", "Base", "Baseplate", "HouseArea"}) do
+        areaPart = plot:FindFirstChild(name, true)
+        if not (areaPart and areaPart:IsA("BasePart")) then areaPart = nil continue end
+        break
+    end
+    if areaPart then
+        local p = areaPart.CFrame:PointToObjectSpace(hrp.Position)
+        local half = areaPart.Size * 0.5
+        local ok = math.abs(p.X) <= half.X
+        if ok then ok = math.abs(p.Y) <= half.Y end
+        if ok then ok = math.abs(p.Z) <= half.Z end
+        return ok
+    end
+    local bb, size = plot:GetBoundingBox()
+    local p = bb:PointToObjectSpace(hrp.Position)
+    local half = (size + Vector3.new(6, 10, 6)) * 0.5
+    local ok = math.abs(p.X) <= half.X
+    if ok then ok = math.abs(p.Y) <= half.Y end
+    if ok then ok = math.abs(p.Z) <= half.Z end
+    return ok
 end
 
 -- ==========================================
@@ -786,190 +872,688 @@ local noBlobRunning = false
 function ExecuteNoBlobKick()
     if noBlobRunning then return end
     noBlobRunning = true
-    -- [Đã bỏ đúng 1 dòng: sendChat("why u bylleh me😭")]
-
+    _G.RYZE_StopNoBlob = function()
+        noBlobRunning = false
+        state.lineLagRunning = false
+        StopLineLag()
+    end
     task.spawn(function()
         state.lineLagRunning = false
-        state.lineCount = state.lineLagIntensity or 520
         StartLineLag()
-
-        -- [FIX 3] Lấy SẠCH mọi người ngoài Plot — KHÔNG whitelist, KHÔNG friends
         local allPlayers = {}
         for _, p in ipairs(players:GetPlayers()) do
             if p ~= localPlayer then table.insert(allPlayers, p) end
         end
-
-        -- [FIX 2] Dùng IsInPlot() riêng — không check inline
+        if #allPlayers == 0 then StopLineLag() noBlobRunning = false return end
         local filtered = {}
         for _, p in ipairs(allPlayers) do
             if not IsInPlot(p) then table.insert(filtered, p) end
         end
-
+        if #filtered == 0 then StopLineLag() noBlobRunning = false return end
         local char = localPlayer.Character
         char = char and char:FindFirstChild("HumanoidRootPart")
-        if not char or #filtered == 0 then
-            StopLineLag()
-            noBlobRunning = false
-            return
-        end
-
+        if not char then StopLineLag() noBlobRunning = false return end
         local hrps = {}
         for _, p in ipairs(filtered) do
             local c = p.Character
             local h = c and c:FindFirstChild("HumanoidRootPart")
             if h then table.insert(hrps, {player = p, hrp = h}) end
         end
-
-        -- Chiếm NetworkOwner: 0.16s/target × 5 lần fire
+        -- PHASE 1: teleport + spam SetNetworkOwner (5x có wait xen giữa - 100% new file)
         for _, t in ipairs(hrps) do
             pcall(function()
                 char.CFrame = t.hrp.CFrame * CFrame.new(0, 0, 3)
                 char.AssemblyLinearVelocity = Vector3.zero
             end)
             task.wait(0.16)
-            for i = 1, 5 do
-                setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame)
-            end
+            pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
+            pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
+            task.wait()
+            pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
+            task.wait()
+            pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
+            pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
         end
-
-        -- Vòng tròn bán kính 80, cao Y=32
-        local step = 6.283185307179586 / #hrps
+        -- PHASE 2: circle Y=32, radius 80 (100% new file)
+        local step = 6.2831853071795862 / #hrps
         for i, t in ipairs(hrps) do
             local a = (i - 1) * step
             local x, z = math.cos(a) * 80, math.sin(a) * 80
             pcall(function()
                 t.hrp.CFrame = CFrame.new(x, 32, z)
                 t.hrp.AssemblyLinearVelocity = Vector3.zero
+                t.hrp.Velocity = Vector3.zero
             end)
             local bp = Instance.new("BodyPosition")
             bp.MaxForce = Vector3.new(3e9, 4e9, 3e9)
-            bp.P = 5e7
+            bp.P = 50000000
             bp.Position = Vector3.new(x, 32, z)
             bp.Parent = t.hrp
             task.delay(3, function() pcall(function() bp:Destroy() end) end)
             task.wait()
         end
-
         task.wait(1.3)
-
-        -- Kéo grab-line vào toạ độ vô cực rồi destroy → đứt → kick
-        for _, t in ipairs(hrps) do
-            pcall(function()
-                createGrabLine:FireServer(t.hrp, CFrame.new(3e9, 4e9, 2e9))
-                task.wait()
-                destroyGrabLine:FireServer(t.hrp)
-            end)
+        -- PHASE 3: destroy grab-line (100% new file — 1 vòng lặp + wait 12s)
+        for i = 1, 1 do
+            for _, t in ipairs(hrps) do
+                pcall(function()
+                    createGrabLine:FireServer(t.hrp, CFrame.new(3e9, 4e9, 2e9))
+                    task.wait()
+                    destroyGrabLine:FireServer(t.hrp)
+                end)
+            end
+            task.wait(12)
         end
         state.session.track_kill(#hrps)
-        -- [FIX 1] Giữ Line Lag đúng 12s
-        task.wait(12)
         StopLineLag()
         noBlobRunning = false
     end)
 end
 
 -- ==========================================
--- KICK ALL (Blobman) — giữ nguyên
+-- KICK HELPERS (file scope — dùng lại cho gkaExecute)
+-- ==========================================
+function _RYZE_spawnBlobmanIfNeeded()
+    local char = localPlayer.Character
+    local hrp = char and char:FindFirstChild("HumanoidRootPart")
+    if not hrp then return nil end
+    local toys = workspace_:FindFirstChild(localPlayer.Name .. "SpawnedInToys")
+    if not toys then return nil end
+    local blob = toys:FindFirstChild("CreatureBlobman")
+    if blob then return blob end
+    task.spawn(function()
+        pcall(function() spawnToyRemote:InvokeServer("CreatureBlobman", hrp.CFrame, Vector3.zero) end)
+    end)
+    for i = 1, 50 do
+        blob = toys:FindFirstChild("CreatureBlobman")
+        if blob then return blob end
+        task.wait(0.05)
+    end
+    return nil
+end
+
+function _RYZE_sitOnBlobman(blob)
+    if not blob then return false end
+    local seat = blob:FindFirstChildWhichIsA("VehicleSeat", true)
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChildOfClass("Humanoid")
+    if seat and hum and not seat.Occupant then
+        task.wait(0.1)
+        pcall(function() seat:Sit(hum) end)
+        return true
+    end
+    return false
+end
+
+function _RYZE_getKickTargets()
+    local out = {}
+    for _, p in ipairs(players:GetPlayers()) do
+        if p ~= localPlayer and not (state.isWL and state.isWL(p)) then
+            table.insert(out, p)
+        end
+    end
+    return out
+end
+
+-- ==========================================
+-- KICK ALL (Blobman) — PORTED 100% từ PoopHub/Resonance (executeBlobmanKick)
 -- ==========================================
 function KickAll()
+    local targets = _RYZE_getKickTargets()
+    if #targets == 0 then
+        Notify("Kick All", "No targets found.", "warning", 3)
+        return
+    end
+    Notify("Kick All", "Starting Blobman Kick V2 on " .. #targets .. " targets...", "info", 3)
     task.spawn(function()
-        local char = localPlayer.Character
-        local hum = char and char:FindFirstChild("Humanoid")
-        local hrp = char and char:FindFirstChild("HumanoidRootPart")
-        if not hrp or not hum or hum.Health <= 0 or not hum.SeatPart then
-            Notify("Kick All", "Sit on Blobman first", "warning", 3) return
+        local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart")
+        local toys = workspace_:FindFirstChild(localPlayer.Name .. "SpawnedInToys")
+        if toys then
+            local oldBlob = toys:FindFirstChild("CreatureBlobman")
+            if oldBlob then
+                pcall(function() DestroyT(oldBlob) end)
+                task.wait(0.133)
+            end
         end
-        local blob = hum.SeatPart.Parent
-        if blob.Name ~= "CreatureBlobman" then Notify("Kick All", "Sit on Blobman first", "warning", 3) return end
-        local bHrp = blob:FindFirstChild("HumanoidRootPart")
-        local script = blob:FindFirstChild("BlobmanSeatAndOwnerScript")
-        if not script or not bHrp then return end
-        local cg = script:FindFirstChild("CreatureGrab")
-        local cr = script:FindFirstChild("CreatureRelease")
-        if not cg or not cr then return end
-        local leftDet = blob:FindFirstChild("LeftDetector")
-        if not leftDet then return end
-        local lw = leftDet:FindFirstChild("LeftWeld")
-        if not lw then return end
-        for _, p in players:GetPlayers() do
-            if p ~= localPlayer and p.Character then
-                local tHrp = p.Character:FindFirstChild("HumanoidRootPart")
-                local tHum = p.Character:FindFirstChildOfClass("Humanoid")
-                if tHrp and tHum and tHum.Health > 0 and hum.Health > 0 and hum.SeatPart and hum.SeatPart.Parent == blob then
-                    for _ = 1, 30 do
-                        hrp.CFrame = tHrp.CFrame * CFrame.new(0, 3, 3)
-                        hrp.Velocity = Vector3.zero
-                        hrp.RotVelocity = Vector3.zero
-                        cg:FireServer(leftDet, tHrp, lw)
-                        cr:FireServer(lw)
-                        task.wait()
-                    end
+        local blob = _RYZE_spawnBlobmanIfNeeded()
+        if not blob then
+            Notify("Kick All", "Failed to spawn Blobman.", "warning", 3)
+            return
+        end
+        task.wait(0.1)
+        _RYZE_sitOnBlobman(blob)
+        task.wait(0.3)
+        local savedCollide = {}
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") then
+                savedCollide[d] = d.CanCollide
+                d.CanCollide = false
+            end
+        end
+        local function grab(b, target)
+            for _, side in ipairs({"Left", "Right"}) do
+                local det = b:FindFirstChild(side .. "Detector")
+                local weld = det and det:FindFirstChild(side .. "Weld")
+                local script = b:FindFirstChild("BlobmanSeatAndOwnerScript")
+                local cg = script and script:FindFirstChild("CreatureGrab")
+                if det and weld and cg then
+                    pcall(function() cg:FireServer(det, target, weld) end)
                 end
             end
         end
-        if not (hum.Health > 0 and hum.SeatPart and hum.SeatPart.Parent == blob) then return end
-        bHrp.CFrame = CFrame.new(0, 250, 0)
-        bHrp.Velocity = Vector3.zero
-        local bp = Instance.new("BodyPosition")
-        bp.Position = Vector3.new(0, 250, 0)
-        bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bp.D = 100
-        bp.Parent = bHrp
-        Instance.new("BodyGyro", bHrp).MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
-        local targets = {}
-        for _, p in players:GetPlayers() do
-            if p ~= localPlayer and not (state.isWL and state.isWL(p)) then table.insert(targets, p) end
-        end
-        if #targets == 0 then return end
-        for i, p in ipairs(targets) do
-            local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-            if tHrp then
-                local angle = i * 6.283185307179586 / #targets
-                local bp2 = Instance.new("BodyPosition")
-                bp2.Position = Vector3.new(math.cos(angle) * 20, 250, math.sin(angle) * 20)
-                bp2.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-                bp2.D = 100
-                bp2.Parent = tHrp
-                Instance.new("BodyGyro", tHrp).MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        local function rere(b, target)
+            for _, side in ipairs({"Left", "Right"}) do
+                local det = b:FindFirstChild(side .. "Detector")
+                local weld = det and det:FindFirstChild(side .. "Weld")
+                local script = b:FindFirstChild("BlobmanSeatAndOwnerScript")
+                local cr = script and script:FindFirstChild("CreatureRelease")
+                if weld and cr then
+                    pcall(function() cr:FireServer(weld, target) end)
+                end
             end
         end
-        task.wait(0.25)
+        local function drop(b, target)
+            for _, side in ipairs({"Left", "Right"}) do
+                local det = b:FindFirstChild(side .. "Detector")
+                local weld = det and det:FindFirstChild(side .. "Weld")
+                local script = b:FindFirstChild("BlobmanSeatAndOwnerScript")
+                local cd = script and script:FindFirstChild("CreatureDrop")
+                if weld and cd then
+                    pcall(function() cd:FireServer(weld, target) end)
+                end
+            end
+        end
+        local function ungrab(part)
+            if part and destroyGrabLine then
+                pcall(function() destroyGrabLine:FireServer(part) end)
+            end
+        end
+        local validTargets = {}
         for _, p in ipairs(targets) do
-            if p.Character then
-                local tHrp = p.Character:FindFirstChild("HumanoidRootPart")
-                local tHum = p.Character:FindFirstChildOfClass("Humanoid")
-                if tHrp and tHum and tHum.Health > 0 and hum.Health > 0 and hum.SeatPart and hum.SeatPart.Parent == blob then
-                    task.spawn(function()
-                        for _ = 1, 5 do
-                            setNetworkOwner:FireServer(tHrp, tHrp.CFrame)
-                            destroyGrabLine:FireServer(tHrp)
-                            task.wait()
-                            cg:FireServer(leftDet, tHrp, lw)
+            local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+            if tHrp then table.insert(validTargets, {player = p, hrp = tHrp}) end
+        end
+        for _, t in ipairs(validTargets) do
+            pcall(function()
+                hrp.CFrame = t.hrp.CFrame
+                hrp.AssemblyAngularVelocity = Vector3.zero
+            end)
+            task.wait(0.11)
+            if (hrp.Position - t.hrp.Position).Magnitude <= 35 then
+                for i = 1, 5 do
+                    if not t.hrp.Parent or not blob.Parent then break end
+                    grab(blob, t.hrp)
+                    task.wait()
+                    rere(blob, t.hrp)
+                end
+            end
+        end
+        pcall(function()
+            hrp.CFrame = CFrame.new(0, 90, 0)
+            hrp.AssemblyLinearVelocity = Vector3.zero
+        end)
+        task.wait(0.2)
+        hrp.Anchored = true
+        local n = #validTargets
+        for i, t in ipairs(validTargets) do
+            local angle = 6.2831853071795862 / n * (i - 1)
+            local offset = Vector3.new(math.cos(angle) * 22, 0, math.sin(angle) * 22)
+            pcall(function()
+                t.hrp.CFrame = CFrame.new(hrp.Position.X + offset.X, 90, hrp.Position.Z + offset.Z)
+                t.hrp.AssemblyLinearVelocity = Vector3.zero
+                t.hrp.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
+        task.wait(0.2)
+        for _, t in ipairs(validTargets) do
+            for i = 1, 10 do
+                pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
+            end
+        end
+        task.wait(0.1)
+        for _, t in ipairs(validTargets) do ungrab(t.hrp) end
+        for _, t in ipairs(validTargets) do drop(blob, t.hrp) end
+        hrp.Anchored = false
+        local startT = os.clock()
+        while os.clock() - startT < 0.05 do
+            for _, t in ipairs(validTargets) do
+                task.spawn(function()
+                    if t.hrp.Parent and blob.Parent then grab(blob, t.hrp) end
+                end)
+            end
+            task.wait()
+        end
+        for d, canCollide in pairs(savedCollide) do
+            if d:IsA("BasePart") then d.CanCollide = canCollide end
+        end
+        state.session.track_kill(#validTargets)
+        Notify("Kick All", "Blobman Kick V2 complete on " .. #validTargets .. " targets.", "success", 4)
+    end)
+end
+
+-- ==========================================
+-- LOOP KICK BLOB (ported 100% từ LoopKickBlobFunction)
+-- ==========================================
+local _loopKickBlobActive = false
+local _loopKickBlobTask = nil
+local _skyKickFloor = nil
+
+local function _ensureSkyKickFloor()
+    if _skyKickFloor and _skyKickFloor.Parent then return _skyKickFloor end
+    local p = Instance.new("Part")
+    p.Name = "SkyKickFloor"
+    p.Anchored = true
+    p.CanCollide = true
+    p.Size = Vector3.new(50, 1, 50)
+    p.CFrame = CFrame.new(20000, 20000, 20000)
+    p.BrickColor = BrickColor.new("White")
+    p.Material = Enum.Material.SmoothPlastic
+    p.Parent = workspace_
+    _skyKickFloor = p
+    return p
+end
+
+local function _removeSkyKickFloor()
+    if _skyKickFloor and _skyKickFloor.Parent then _skyKickFloor:Destroy() end
+    _skyKickFloor = nil
+end
+
+local function _loopKickBlobSingle(targetName, useSkyMode)
+    local grabEvents = replicatedStorage:WaitForChild("GrabEvents")
+    local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+    local seatPart = char:WaitForChild("Humanoid").SeatPart
+    if not seatPart or seatPart.Parent.Name ~= "CreatureBlobman" then return end
+    local blob = seatPart.Parent
+    local hrp = blob:FindFirstChild("HumanoidRootPart") or blob.PrimaryPart
+    local script = blob:WaitForChild("BlobmanSeatAndOwnerScript")
+    local cg = script:WaitForChild("CreatureGrab")
+    local cd = script:WaitForChild("CreatureDrop")
+    local rightDet = blob:WaitForChild("RightDetector")
+    local cframe = CFrame.new(20000, 20000, 20000)
+    if useSkyMode then
+        _ensureSkyKickFloor()
+        local skyCF = CFrame.new(20000, 20010.5, 20000)
+        pcall(function() hrp.CFrame = skyCF end)
+        local myHrp = char:FindFirstChild("HumanoidRootPart")
+        if myHrp then pcall(function() myHrp.CFrame = skyCF end) end
+        task.wait(0.2)
+        cframe = skyCF
+    end
+    local lockCF = useSkyMode and cframe or hrp.CFrame
+    local flag = false
+    local n = 0
+    local n2 = 0
+    while _loopKickBlobActive do
+        local v4 = players:FindFirstChild(targetName)
+        if not v4 then break end
+        local myChar = localPlayer.Character
+        local myHum = myChar and myChar:FindFirstChild("Humanoid")
+        local seat2 = myHum and myHum.SeatPart
+        if not seat2 or seat2.Parent.Name ~= "CreatureBlobman" then break end
+        local blob2 = seat2.Parent
+        hrp = blob2:FindFirstChild("HumanoidRootPart") or blob2.PrimaryPart
+        local tChar = v4.Character
+        local tHrp = tChar and tChar:FindFirstChild("HumanoidRootPart")
+        local tHum = tChar and tChar:FindFirstChild("Humanoid")
+        if tHrp and tHum and tHum.Health > 0 and hrp then
+            tHrp.Velocity = Vector3.zero
+            if not flag then
+                hrp.CFrame = tHrp.CFrame
+                hrp.Velocity = Vector3.zero
+                if tick() - n >= 0.002 then
+                    n = tick()
+                    pcall(function()
+                        tHum.PlatformStand = true
+                        tHum.Sit = true
+                        grabEvents.SetNetworkOwner:FireServer(tHrp, hrp.CFrame)
+                        grabEvents.DestroyGrabLine:FireServer(tHrp)
+                    end)
+                end
+                if n2 == 0 then n2 = tick() end
+                if tick() - n2 > 0.35 then
+                    hrp.CFrame = cframe
+                    hrp.Velocity = Vector3.zero
+                    flag = true
+                    n2 = 0
+                end
+            else
+                hrp.CFrame = cframe
+                hrp.Velocity = Vector3.zero
+                local tcf = cframe * CFrame.new(0, 23, 0)
+                tHrp.CFrame = tcf
+                tHum.PlatformStand = true
+                tHum.Sit = true
+                if tick() - n >= 0.002 then
+                    n = tick()
+                    pcall(function()
+                        grabEvents.SetNetworkOwner:FireServer(tHrp, tcf)
+                        grabEvents.DestroyGrabLine:FireServer(tHrp)
+                        local rw = rightDet:FindFirstChild("RightWeld") or rightDet:FindFirstChildWhichIsA("Weld")
+                        if rw then
+                            cd:FireServer(rw)
+                            cg:FireServer(rightDet, tHrp, rw)
                         end
                     end)
                 end
             end
+        else
+            flag = false
+            n2 = 0
         end
-        task.spawn(function()
-            task.wait(3)
-            for _, p in ipairs(targets) do
-                if p.Character then
-                    local tHrp = p.Character:FindFirstChild("HumanoidRootPart")
-                    if tHrp then
-                        local bp3 = tHrp:FindFirstChild("BodyPosition")
-                        if bp3 then bp3:Destroy() end
-                        local bg = tHrp:FindFirstChild("BodyGyro")
-                        if bg then bg:Destroy() end
+        runService.Heartbeat:Wait()
+    end
+    if useSkyMode then _removeSkyKickFloor() end
+end
+
+function StartLoopKickBlob(useSkyMode)
+    if _loopKickBlobActive then return end
+    local char = localPlayer.Character
+    local hum = char and char:FindFirstChild("Humanoid")
+    if not hum or not hum.SeatPart or hum.SeatPart.Parent.Name ~= "CreatureBlobman" then
+        Notify("Loop Kick Blob", "Ngồi lên Blobman trước", "warning", 3)
+        return
+    end
+    _loopKickBlobActive = true
+    _loopKickBlobTask = task.spawn(function()
+        while _loopKickBlobActive do
+            for _, p in ipairs(players:GetPlayers()) do
+                if not _loopKickBlobActive then break end
+                if p ~= localPlayer and not (state.isWL and state.isWL(p)) and p.Character then
+                    local tHum = p.Character:FindFirstChildOfClass("Humanoid")
+                    if tHum and tHum.Health > 0 then
+                        _loopKickBlobSingle(p.Name, useSkyMode)
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+    Notify("Loop Kick Blob", "Started (mode: " .. (useSkyMode and "Sky" or "Default") .. ")", "success", 3)
+end
+
+function StopLoopKickBlob()
+    _loopKickBlobActive = false
+    if _loopKickBlobTask then
+        pcall(task.cancel, _loopKickBlobTask)
+        _loopKickBlobTask = nil
+    end
+    _removeSkyKickFloor()
+    Notify("Loop Kick Blob", "Stopped", "info", 2)
+end
+
+-- ==========================================
+-- GATHER KICK ALL (ported 100% từ gkaExecute)
+-- ==========================================
+local _gkaActive = false
+local _gkaConn = nil
+local _gkaTargets = {}
+local _gkaBodyPositions = {}
+local _gkaBlobAngle = 0
+
+local function _gkaGrab(blob, target)
+    if not blob or not blob.Parent or not target then return end
+    for _, side in ipairs({"Left", "Right"}) do
+        local det = blob:FindFirstChild(side .. "Detector")
+        local weld = det and det:FindFirstChild(side .. "Weld")
+        local script = blob:FindFirstChild("BlobmanSeatAndOwnerScript")
+        local cg = script and script:FindFirstChild("CreatureGrab")
+        if det and weld and cg then
+            pcall(function() cg:FireServer(det, target, weld) end)
+        end
+    end
+end
+
+local function _gkaRere(blob, target)
+    if not blob or not blob.Parent or not target then return end
+    for _, side in ipairs({"Left", "Right"}) do
+        local det = blob:FindFirstChild(side .. "Detector")
+        local weld = det and det:FindFirstChild(side .. "Weld")
+        local script = blob:FindFirstChild("BlobmanSeatAndOwnerScript")
+        local cr = script and script:FindFirstChild("CreatureRelease")
+        if weld and cr then
+            pcall(function() cr:FireServer(weld, target) end)
+        end
+    end
+end
+
+local function _gkaDrop(blob, target)
+    if not blob or not blob.Parent or not target then return end
+    for _, side in ipairs({"Left", "Right"}) do
+        local det = blob:FindFirstChild(side .. "Detector")
+        local weld = det and det:FindFirstChild(side .. "Weld")
+        local script = blob:FindFirstChild("BlobmanSeatAndOwnerScript")
+        local cd = script and script:FindFirstChild("CreatureDrop")
+        if weld and cd then
+            pcall(function() cd:FireServer(weld, target) end)
+        end
+    end
+end
+
+local function _gkaUngrab(target)
+    if target and destroyGrabLine then
+        pcall(function() destroyGrabLine:FireServer(target) end)
+    end
+end
+
+function StopGatherKickAll()
+    _gkaActive = false
+    if _gkaConn then _gkaConn:Disconnect() _gkaConn = nil end
+    for _, bp in ipairs(_gkaBodyPositions) do pcall(function() bp:Destroy() end) end
+    _gkaBodyPositions = {}
+    _gkaTargets = {}
+    _gkaBlobAngle = 0
+    StopLineLag()
+    Notify("Gather Kick All", "Stopped.", "info", 2)
+end
+
+_G.RYZE_StopGatherKickAll = StopGatherKickAll
+
+function ExecuteGatherKickAll()
+    if _gkaActive then Notify("Gather Kick All", "Already running!", "warning", 2) return end
+    _gkaActive = true
+    task.spawn(function()
+        local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+        local hrp = char:WaitForChild("HumanoidRootPart", 10)
+        if not hrp then StopGatherKickAll() return end
+        local targets = {}
+        for _, p in ipairs(players:GetPlayers()) do
+            if p ~= localPlayer and not (state.isWL and state.isWL(p)) then
+                local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                if tHrp then table.insert(targets, {player = p, hrp = tHrp}) end
+            end
+        end
+        if #targets == 0 then
+            Notify("Gather Kick All", "No targets!", "warning", 3)
+            StopGatherKickAll() return
+        end
+        Notify("Gather Kick All", "Starting...", "info", 3)
+        state.lineLagRunning = false
+        StartLineLag()
+        local toys = workspace_:FindFirstChild(localPlayer.Name .. "SpawnedInToys")
+        if toys then
+            local oldBlob = toys:FindFirstChild("CreatureBlobman")
+            if oldBlob then pcall(function() DestroyT(oldBlob) end) task.wait(0.133) end
+        end
+        local blob = _RYZE_spawnBlobmanIfNeeded()
+        if not blob then
+            Notify("Gather Kick All", "Blobman spawn failed!", "warning", 3)
+            StopGatherKickAll() return
+        end
+        task.wait(0.1)
+        _RYZE_sitOnBlobman(blob)
+        task.wait(0.3)
+        local savedCollide = {}
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") then savedCollide[d] = d.CanCollide d.CanCollide = false end
+        end
+        Notify("Gather Kick All", "Gathering...", "info", 3)
+        for _, t in ipairs(targets) do
+            if not _gkaActive then break end
+            pcall(function() hrp.CFrame = t.hrp.CFrame hrp.AssemblyAngularVelocity = Vector3.zero end)
+            task.wait(0.11)
+            if t.hrp and t.hrp.Parent then
+                for i = 1, 8 do pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end) end
+            end
+            if (hrp.Position - t.hrp.Position).Magnitude <= 35 then
+                for i = 1, 5 do
+                    if not t.hrp.Parent or not blob.Parent then break end
+                    _gkaGrab(blob, t.hrp) task.wait() _gkaRere(blob, t.hrp)
+                end
+            end
+            if t.hrp and t.hrp.Parent then
+                for i = 1, 4 do pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end) end
+            end
+        end
+        local centerY = 50
+        local circleRadius = 6
+        local n = #targets
+        pcall(function() hrp.CFrame = CFrame.new(0, centerY, 0) hrp.AssemblyLinearVelocity = Vector3.zero end)
+        task.wait(0.2)
+        hrp.Anchored = true
+        for i, t in ipairs(targets) do
+            local angle = 6.2831853071795862 / n * (i - 1)
+            local off = Vector3.new(math.cos(angle) * circleRadius, 0, math.sin(angle) * circleRadius)
+            pcall(function()
+                t.hrp.CFrame = CFrame.new(hrp.Position.X + off.X, centerY, hrp.Position.Z + off.Z)
+                t.hrp.AssemblyLinearVelocity = Vector3.zero
+                t.hrp.AssemblyAngularVelocity = Vector3.zero
+            end)
+        end
+        task.wait(0.2)
+        for _, t in ipairs(targets) do
+            if t.hrp and t.hrp.Parent then
+                for i = 1, 10 do pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end) end
+            end
+        end
+        task.wait(0.1)
+        for _, t in ipairs(targets) do _gkaUngrab(t.hrp) end
+        for _, t in ipairs(targets) do _gkaDrop(blob, t.hrp) end
+        hrp.Anchored = false
+        local startT = os.clock()
+        while os.clock() - startT < 0.05 do
+            for _, t in ipairs(targets) do
+                task.spawn(function()
+                    if t.hrp and t.hrp.Parent and blob and blob.Parent then _gkaGrab(blob, t.hrp) end
+                end)
+            end
+            task.wait()
+        end
+        for d, cc in pairs(savedCollide) do
+            if d:IsA("BasePart") then d.CanCollide = cc end
+        end
+        Notify("Gather Kick All", "Orbit starting!", "info", 3)
+        local blobOrbitRadius = 18
+        if not blob.Parent then
+            Notify("Gather Kick All", "Re-spawning Blobman...", "info", 2)
+            pcall(function() hrp.CFrame = CFrame.new(0, centerY + 3, blobOrbitRadius) hrp.AssemblyLinearVelocity = Vector3.zero end)
+            task.wait(0.2)
+            blob = _RYZE_spawnBlobmanIfNeeded()
+            if not blob then
+                Notify("Gather Kick All", "Blobman spawn failed, orbit aborted!", "warning", 3)
+                StopGatherKickAll() return
+            end
+            _RYZE_sitOnBlobman(blob)
+            task.wait(0.35)
+        else
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if not (hum and hum.SeatPart) then
+                pcall(function() hrp.CFrame = CFrame.new(0, centerY + 3, blobOrbitRadius) hrp.AssemblyLinearVelocity = Vector3.zero end)
+                task.wait(0.2)
+                _RYZE_sitOnBlobman(blob)
+                task.wait(0.35)
+            else
+                pcall(function() hrp.CFrame = CFrame.new(0, centerY + 3, blobOrbitRadius) hrp.AssemblyLinearVelocity = Vector3.zero end)
+                task.wait(0.15)
+            end
+        end
+        _gkaTargets = targets
+        _gkaBodyPositions = {}
+        for i, t in ipairs(targets) do
+            if t.hrp and t.hrp.Parent then
+                local angle = 6.2831853071795862 / n * (i - 1)
+                local x = math.cos(angle) * circleRadius
+                local z = math.sin(angle) * circleRadius
+                pcall(function()
+                    t.hrp.CFrame = CFrame.new(x, centerY, z)
+                    t.hrp.AssemblyLinearVelocity = Vector3.zero
+                end)
+                local bp = Instance.new("BodyPosition")
+                bp.MaxForce = Vector3.new(4e9, 5e9, 4e9)
+                bp.P = 100000000
+                bp.D = 10000
+                bp.Position = Vector3.new(x, centerY, z)
+                bp.Parent = t.hrp
+                table.insert(_gkaBodyPositions, bp)
+            end
+        end
+        task.delay(8, function()
+            for _, bp in ipairs(_gkaBodyPositions) do pcall(function() bp:Destroy() end) end
+        end)
+        _gkaBlobAngle = 0
+        local lastSitCheck = 0
+        local lastLineCheck = 0
+        local blobOrbitSpeed = 4
+        _gkaConn = runService.RenderStepped:Connect(function(dt)
+            if not _gkaActive then
+                pcall(function() _gkaConn:Disconnect() end)
+                _gkaConn = nil return
+            end
+            if not blob or not blob.Parent then return end
+            lastSitCheck -= dt
+            if lastSitCheck <= 0 then
+                lastSitCheck = 0.5
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if not (hum and hum.SeatPart) then
+                    task.spawn(function() _RYZE_sitOnBlobman(blob) end)
+                end
+            end
+            lastLineCheck -= dt
+            if lastLineCheck <= 0 then
+                lastLineCheck = 3
+                local anyAlive = false
+                for _, t in ipairs(_gkaTargets) do
+                    if t.player and t.player.Parent then anyAlive = true break end
+                end
+                if not anyAlive then
+                    Notify("Gather Kick All", "All targets gone, stopping.", "info", 3)
+                    task.spawn(StopGatherKickAll) return
+                end
+                state.lineLagRunning = false
+                StartLineLag()
+            end
+            _gkaBlobAngle += blobOrbitSpeed * dt
+            local bx = math.cos(_gkaBlobAngle) * blobOrbitRadius
+            local bz = math.sin(_gkaBlobAngle) * blobOrbitRadius
+            local bHrp = blob:FindFirstChild("HumanoidRootPart") or blob:FindFirstChildWhichIsA("BasePart", true)
+            if bHrp then
+                pcall(function()
+                    bHrp.AssemblyLinearVelocity = (Vector3.new(bx, centerY + 2, bz) - bHrp.Position) * 60
+                    bHrp.CFrame = CFrame.new(bHrp.Position) * CFrame.Angles(0, -(_gkaBlobAngle + 1.5707963267948966), 0)
+                end)
+            end
+            local tn = #_gkaTargets
+            if tn > 0 then
+                local rt = _gkaTargets[math.random(1, tn)]
+                if rt and rt.hrp and rt.hrp.Parent then
+                    task.spawn(function() _gkaGrab(blob, rt.hrp) end)
+                end
+                for i, t in ipairs(_gkaTargets) do
+                    if t.hrp and t.hrp.Parent then
+                        local angle = 6.2831853071795862 / tn * (i - 1)
+                        pcall(function()
+                            t.hrp.CFrame = CFrame.new(math.cos(angle) * circleRadius, centerY, math.sin(angle) * circleRadius)
+                            t.hrp.AssemblyLinearVelocity = Vector3.zero
+                        end)
                     end
                 end
             end
         end)
-        task.wait(0.5)
-        if blob and blob.Parent == toysFolder then DestroyT(blob) end
-state.session.track_kill(#targets)
-Notify("Kick All", "Server wiped", "success", 4)
     end)
 end
+
+_G.RYZE_ExecuteGatherKickAll = ExecuteGatherKickAll
+
 function StealHoldables(targetName, mode)
     task.spawn(function()
         local folders = {}
@@ -2294,11 +2878,75 @@ end)
 
 local pages = {}
 local tabBtns = {}
+local currentTab = nil
+local allElements = {}
+local _layoutIndex = 0 -- ⭐ Thêm dòng này để đếm thứ tự
+
+-- ⭐ THÊM THANH TÌM KIẾM VÀO ĐÂY
+local searchFrame = Instance.new("Frame")
+searchFrame.Size = UDim2.new(1, -16, 0, 32)
+searchFrame.Position = UDim2.new(0, 8, 0, 8)
+searchFrame.BackgroundColor3 = C_ELEM
+searchFrame.BorderSizePixel = 0
+searchFrame.ZIndex = 4
+searchFrame.Parent = content
+Instance.new("UICorner", searchFrame).CornerRadius = UDim.new(0, 6)
+
+local sBox = Instance.new("TextBox")
+sBox.Size = UDim2.new(1, -16, 1, 0)
+sBox.Position = UDim2.new(0, 8, 0, 0)
+sBox.BackgroundTransparency = 1
+sBox.PlaceholderText = "🔍 find feature"
+sBox.PlaceholderColor3 = C_MUTED
+sBox.Text = ""
+sBox.TextColor3 = C_TEXT
+sBox.Font = Enum.Font.GothamMedium
+sBox.TextSize = 12
+sBox.TextXAlignment = Enum.TextXAlignment.Left
+sBox.ZIndex = 5
+sBox.Parent = searchFrame
+_G.RYZE_SearchBox = sBox
+
+local searchPage = Instance.new("ScrollingFrame")
+searchPage.Size = UDim2.new(1, -16, 1, -56)
+searchPage.Position = UDim2.new(0, 8, 0, 48)
+searchPage.BackgroundTransparency = 1
+searchPage.BorderSizePixel = 0
+searchPage.ScrollBarThickness = 4
+searchPage.ScrollBarImageColor3 = ACCENT
+searchPage.CanvasSize = UDim2.new(0, 0, 0, 0)
+searchPage.AutomaticCanvasSize = Enum.AutomaticSize.Y
+searchPage.Visible = false
+searchPage.ZIndex = 3
+searchPage.Parent = content
+local searchLayout = Instance.new("UIListLayout")
+searchLayout.Padding = UDim.new(0, 6)
+searchLayout.SortOrder = Enum.SortOrder.LayoutOrder
+searchLayout.Parent = searchPage
+
+sBox:GetPropertyChangedSignal("Text"):Connect(function()
+    local txt = sBox.Text:lower()
+    for _, el in ipairs(allElements) do
+        if el.obj and el.obj.Parent then el.obj.Parent = el.page end
+    end
+    if txt == "" then
+        searchPage.Visible = false
+        if currentTab then currentTab.Visible = true end
+        return
+    end
+    for _, p in pairs(pages) do p.Visible = false end
+    searchPage.Visible = true
+    for _, el in ipairs(allElements) do
+        if el.name and el.name:lower():find(txt, 1, true) then
+            el.obj.Parent = searchPage
+        end
+    end
+end)
 
 function createTab(name, order)
     local page = Instance.new("ScrollingFrame")
-    page.Size = UDim2.new(1, -16, 1, -16)
-    page.Position = UDim2.new(0, 8, 0, 8)
+    page.Size = UDim2.new(1, -16, 1, -56)
+    page.Position = UDim2.new(0, 8, 0, 48)
     page.BackgroundTransparency = 1
     page.BorderSizePixel = 0
     page.ScrollBarThickness = 4
@@ -2314,7 +2962,7 @@ function createTab(name, order)
     layout.SortOrder = Enum.SortOrder.LayoutOrder
     layout.Parent = page
 
-        pages[name] = page
+    pages[name] = page
 
     page.DescendantAdded:Connect(function(d)
         if d:IsA("GuiObject") and d.ZIndex < 5 then
@@ -2340,12 +2988,14 @@ function createTab(name, order)
     bc.Parent = btn
 
     btn.MouseButton1Click:Connect(function()
+        if _G.RYZE_SearchBox then _G.RYZE_SearchBox.Text = "" end
         for _, p in pairs(pages) do p.Visible = false end
         for _, b in pairs(tabBtns) do
             b.BackgroundTransparency = 1
             b.TextColor3 = TEXT2
         end
         page.Visible = true
+        currentTab = page
         btn.BackgroundTransparency = 0
         btn.BackgroundColor3 = ACCENT
         btn.TextColor3 = Color3.new(1, 1, 1)
@@ -2420,6 +3070,7 @@ function makeButton(parent, text, cb, danger)
         tweenService:Create(s, TweenInfo.new(0.15), { Transparency = 0.94 }):Play()
     end)
     btn.MouseButton1Click:Connect(function() pcall(cb) end)
+    table.insert(allElements, { name = text, obj = btn, page = parent })
     return btn
 end
 
@@ -2493,6 +3144,7 @@ function makeToggle(parent, text, default, cb)
         pcall(cb, on)
         if _G.QueueSave then _G.QueueSave() end
     end)
+    table.insert(allElements, { name = text, obj = btn, page = parent })
     return btn
 end
 
@@ -2600,7 +3252,7 @@ function makeSlider(parent, text, default, min, max, cb)
         update(userInputService:GetMouseLocation().X)
     end)
 
-        userInputService.InputEnded:Connect(function(i)
+            userInputService.InputEnded:Connect(function(i)
         if (i.UserInputType == Enum.UserInputType.MouseButton1
             or i.UserInputType == Enum.UserInputType.Touch) and dragging then
             dragging = false
@@ -2615,6 +3267,21 @@ function makeSlider(parent, text, default, min, max, cb)
         end
     end)
 
+    -- ⭐ REGISTRY: cho phép restore từ config (không cần firesignal)
+    if not _G.RYZE_Sliders then _G.RYZE_Sliders = {} end
+    _G.RYZE_Sliders[text] = {
+        setValue = function(v)
+            v = math.clamp(v, min, max)
+            lastV = v
+            valLbl.Text = tostring(v)
+            local p = (v - min) / (max - min)
+            fill.Size = UDim2.new(p, 0, 1, 0)
+            knob.Position = UDim2.new(p, 0, 0.5, 0)
+            pcall(cb, v)
+        end,
+    }
+
+    table.insert(allElements, { name = text, obj = frame, page = parent })
     return frame
 end
 
@@ -2657,6 +3324,7 @@ function makeInput(parent, text, default, cb)
         pcall(cb, box.Text)
         if _G.QueueSave then _G.QueueSave() end
     end)
+    table.insert(allElements, { name = text, obj = frame, page = parent })
     return frame
 end
 
@@ -2754,6 +3422,7 @@ function makeDropdown(parent, text, options, default, cb)
         end
     end)
 
+    table.insert(allElements, { name = text, obj = frame, page = parent })
     return frame
 end
 
@@ -2781,12 +3450,16 @@ tabBtns.Main.TextColor3 = Color3.new(1, 1, 1)
 
 -- MAIN TAB
 makeSection(mainTab, "Character")
-makeSlider(mainTab, "WalkSpeed", 16, 1, 200, function(v)
+state.mainWalkSpeed = state.mainWalkSpeed or 16
+state.mainJumpPower = state.mainJumpPower or 50
+makeSlider(mainTab, "WalkSpeed", state.mainWalkSpeed, 1, 200, function(v)
+    state.mainWalkSpeed = v
     local c = localPlayer.Character
     local h = c and c:FindFirstChild("Humanoid")
     if h then h.WalkSpeed = v end
 end)
-makeSlider(mainTab, "JumpPower", 50, 1, 500, function(v)
+makeSlider(mainTab, "JumpPower", state.mainJumpPower, 1, 500, function(v)
+    state.mainJumpPower = v
     local c = localPlayer.Character
     local h = c and c:FindFirstChild("Humanoid")
     if h then h.JumpPower = v end
@@ -2804,11 +3477,7 @@ userInputService.JumpRequest:Connect(function()
         if h then h:ChangeState(Enum.HumanoidStateType.Jumping) end
     end
 end)
-state.tp3 = {on = false, dist = 12}
-
-makeSlider(mainTab, "Third Person Distance", 12, 1, 200, function(v)
-    state.tp3.dist = v
-end)
+state.tp3 = {on = false}
 
 makeToggle(mainTab, "Third Person", false, function(on)
     state.tp3.on = on
@@ -2821,14 +3490,86 @@ makeToggle(mainTab, "Third Person", false, function(on)
                 return
             end
             localPlayer.CameraMode = Enum.CameraMode.Classic
-            localPlayer.CameraMaxZoomDistance = 3000000
-            localPlayer.CameraMinZoomDistance = state.tp3.dist
+            -- Max zoom vô cực
+            pcall(function()
+                localPlayer.CameraMaxZoomDistance = 3000000
+            end)
+            -- Force min zoom = 0 (góc trong)
+            -- Roblox có thể clamp về 0.5 → force lại trong loop
+            pcall(function()
+                localPlayer.CameraMinZoomDistance = 0
+            end)
+            if localPlayer.CameraMinZoomDistance > 0 then
+                localPlayer.CameraMinZoomDistance = 0
+            end
         end)
     else
         localPlayer.CameraMinZoomDistance = 0.5
         localPlayer.CameraMaxZoomDistance = 128
     end
 end)
+
+-- ==========================================
+-- ⭐ ANTI RAGDOLL (Đã thêm)
+-- ==========================================
+state.antiLimp = false
+state._antiLimpConns = {}
+function ToggleAntiLimp(on)
+    state.antiLimp = on
+    for _, c in ipairs(state._antiLimpConns) do pcall(function() c:Disconnect() end) end
+    state._antiLimpConns = {}
+    if not on then return end
+    local function protectHum(hum)
+        if not hum or not state.antiLimp then return end
+        pcall(function() hum.BreakJointsOnDeath = false; hum.AutoRotate = true; hum.PlatformStand = false end)
+        table.insert(state._antiLimpConns, hum.HealthChanged:Connect(function(health)
+            if state.antiLimp and health <= 0 and hum.Parent then pcall(function() hum.Health = 1 end) end
+        end))
+        table.insert(state._antiLimpConns, hum:GetPropertyChangedSignal("AutoRotate"):Connect(function()
+            if state.antiLimp and hum.AutoRotate == false and hum.Parent then pcall(function() hum.AutoRotate = true end) end
+        end))
+        table.insert(state._antiLimpConns, hum:GetPropertyChangedSignal("PlatformStand"):Connect(function()
+            if state.antiLimp and hum.PlatformStand == true and hum.Parent then pcall(function() hum.PlatformStand = false end) end
+        end))
+        table.insert(state._antiLimpConns, runService.RenderStepped:Connect(function()
+            if state.antiLimp and hum and hum.Parent then
+                if hum.Sit and hum.SeatPart == nil then pcall(function() hum.Sit = false end) end
+            end
+        end))
+    end
+    local function hookChar(char)
+        local hum = char:FindFirstChildOfClass("Humanoid") or char:WaitForChild("Humanoid", 3)
+        if hum then protectHum(hum) end
+    end
+    if localPlayer.Character then hookChar(localPlayer.Character) end
+    table.insert(state._antiLimpConns, localPlayer.CharacterAdded:Connect(hookChar))
+end
+
+state.antiLimpCreature = false
+state._antiLimpCreatureConn = nil
+function ToggleAntiLimpCreature(on)
+    state.antiLimpCreature = on
+    if state._antiLimpCreatureConn then pcall(function() state._antiLimpCreatureConn:Disconnect() end) state._antiLimpCreatureConn = nil end
+    if not on then return end
+    local function setupChar(char)
+        if not char then return end
+        local hum = char:WaitForChild("Humanoid", 5)
+        local hrp = char:WaitForChild("HumanoidRootPart", 5)
+        if not (hum and hrp and ragdollRemote) then return end
+        state._antiLimpCreatureConn = hum:GetPropertyChangedSignal("SeatPart"):Connect(function()
+            local seat = hum.SeatPart
+            if seat and seat.Parent and seat.Parent.Name == "CreatureBlobman" then
+                task.spawn(function()
+                    pcall(function() ragdollRemote:FireServer(hrp, 0.05) end)
+                    task.wait(0.15)
+                    if seat and seat.Parent and (seat:IsA("VehicleSeat") or seat:IsA("Seat")) then pcall(function() seat:Sit(hum) end) end
+                end)
+            end
+        end)
+    end
+    if localPlayer.Character then setupChar(localPlayer.Character) end
+    localPlayer.CharacterAdded:Connect(setupChar)
+end
 
 -- DEFENSE TAB
 makeSection(defenseTab, "Protection")
@@ -2842,6 +3583,8 @@ makeToggle(defenseTab, "Anti Lag", false, function(on)
 end)
 makeToggle(defenseTab, "Anti Void", true, function(on) ToggleAntiVoid(on) end)
 makeToggle(defenseTab, "Anti Blobman", false, function(on) ToggleAntiBlobman(on) end)
+makeToggle(defenseTab, "Anti Ragdoll Self", false, function(on) ToggleAntiLimp(on) end)
+makeToggle(defenseTab, "Anti Ragdoll on blob man", false, function(on) ToggleAntiLimpCreature(on) end)
 
 
 -- TARGET TAB
@@ -2934,6 +3677,14 @@ end
 makeSection(serverTab, "Server Wipe")
 makeButton(serverTab, "Kick All (No Blob)", ExecuteNoBlobKick, true)
 makeButton(serverTab, "Kick All (With Blobman)", KickAll, true)
+makeButton(serverTab, "Gather + Orbit Kick", ExecuteGatherKickAll, true)
+makeButton(serverTab, "Stop Gather Kick All", StopGatherKickAll, false)
+makeToggle(serverTab, "Loop Kick Blob", false, function(on)
+    if on then StartLoopKickBlob(false) else StopLoopKickBlob() end
+end)
+makeToggle(serverTab, "Loop Kick Blob (TP to Sky)", false, function(on)
+    if on then StartLoopKickBlob(true) else StopLoopKickBlob() end
+end)
 makeButton(serverTab, "Stick All (Lag)", StickAll, true)
 makeButton(serverTab, "Delete Train", DeleteTrain, true)
 
@@ -3983,6 +4734,16 @@ function _hookDeath(ch)
 end
 if localPlayer.Character then _hookDeath(localPlayer.Character) end
 localPlayer.CharacterAdded:Connect(_hookDeath)
+
+-- ⭐ Re-apply WalkSpeed/JumpPower sau respawn (giữ setting main tab)
+localPlayer.CharacterAdded:Connect(function(char)
+    task.wait(0.5)
+    local h = char:FindFirstChildOfClass("Humanoid")
+    if h then
+        if state.mainWalkSpeed then h.WalkSpeed = state.mainWalkSpeed end
+        if state.mainJumpPower then h.JumpPower = state.mainJumpPower end
+    end
+end)
 task.spawn(function()
     while wmGui.Parent do
         pcall(refreshPlayerListHud)
@@ -5570,6 +6331,94 @@ local _killTracked = {}
         return nil
     end
 
+    -- ⭐ NEW HANDLERS from PoopHub/Resonance
+    local function _getGrabPartModel(gp)
+        local grabPart = gp and gp:FindFirstChild("GrabPart")
+        local weld = grabPart and grabPart:FindFirstChild("WeldConstraint")
+        return grabPart, weld, weld and weld.Part1
+    end
+
+    local function handleSkyGrab(gp)
+        local _, _, target = _getGrabPartModel(gp)
+        if not target then return end
+        local bv = Instance.new("BodyVelocity")
+        bv.Velocity = Vector3.new(0, 100, 0)
+        bv.MaxForce = Vector3.new(0, math.huge, 0)
+        bv.Name = "_RYZE_SkyGrab"
+        bv.Parent = target
+        Debris:AddItem(bv, 0.5)
+    end
+
+    local function handleTeleportGrab(gp, dir)
+        local grabPart = gp and gp:FindFirstChild("GrabPart")
+        if not grabPart then return end
+        local dist = state.tpGrabDist or 30
+        grabPart.Position = grabPart.Position + Vector3.new(0, dir == "up" and dist or -dist, 0)
+    end
+
+    local function handleChaosGrab(gp, isActive)
+        local grabPart = gp and gp:FindFirstChild("GrabPart")
+        if not grabPart then return end
+        local bp = Instance.new("BodyPosition")
+        bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bp.P = 50000
+        bp.D = 1000
+        bp.Name = "_RYZE_ChaosBP"
+        bp.Parent = grabPart
+        local bg = Instance.new("BodyGyro")
+        bg.MaxTorque = Vector3.new(math.huge, math.huge, math.huge)
+        bg.P = 50000
+        bg.D = 1000
+        bg.Name = "_RYZE_ChaosBG"
+        bg.Parent = grabPart
+        task.spawn(function()
+            while isActive() and gp.Parent and grabPart.Parent do
+                pcall(function()
+                    local r = state.chaosRange or 50
+                    bp.Position = grabPart.Position + Vector3.new(math.random(-r, r), math.random(-r, r), math.random(-r, r))
+                    if state.chaosSpin then
+                        bg.CFrame = CFrame.Angles(
+                            math.rad(math.random(-180, 180)),
+                            math.rad(math.random(-180, 180)),
+                            math.rad(math.random(-180, 180))
+                        )
+                    end
+                end)
+                task.wait(0.1)
+            end
+            pcall(function() bp:Destroy() end)
+            pcall(function() bg:Destroy() end)
+        end)
+    end
+
+    local function handleSupersonicGrab(gp)
+        local _, _, target = _getGrabPartModel(gp)
+        if not target then return end
+        local force = state.supersonicForce or 350
+        local bv = Instance.new("BodyVelocity")
+        bv.Velocity = Vector3.new(0, force, 0)
+        bv.MaxForce = Vector3.new(0, math.huge, 0)
+        bv.Name = "_RYZE_SupersonicGrab"
+        bv.Parent = target
+        Debris:AddItem(bv, 0.5)
+    end
+
+    local function handleFreezeGrab(gp)
+        local grabPart = gp and gp:FindFirstChild("GrabPart")
+        if not grabPart then return end
+        local bp = Instance.new("BodyPosition")
+        bp.Position = grabPart.Position + Vector3.new(0, state.freezeDist or 0, 0)
+        bp.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+        bp.P = 50000
+        bp.D = 1000
+        bp.Name = "_RYZE_FreezeBP"
+        bp.Parent = grabPart
+        Debris:AddItem(bp, 30)
+    end
+
+    -- ==========================================
+    -- GRAB HANDLER (mở rộng từ bản gốc)
+    -- ==========================================
     workspace_.ChildAdded:Connect(function(child)
         if child.Name ~= "GrabParts" then return end
         task.wait(0.05)
@@ -5585,44 +6434,37 @@ local _killTracked = {}
         local grabbedHum = grabbedChar and grabbedChar:FindFirstChildOfClass("Humanoid")
 
         -- Super Strength: RMB (PC) + Touch (Mobile) to throw
-if modes["Super Strength"] then
-    local throwConn
-    local function doThrow()
-        if not _grabIsActive(part) then
-            if throwConn then throwConn:Disconnect() end
-            return
-        end
-        local power = 100 * (400 ^ ((state.grabStrengthPower - 1) / 9))
-        local bv = Instance.new("BodyVelocity")
-        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
-        bv.Velocity = workspace.CurrentCamera.CFrame.LookVector * power
-        bv.Parent = part
-        Debris:AddItem(bv, 0.2)
-    end
 
-    throwConn = userInputService.InputBegan:Connect(function(input, gp)
-        if gp then return end
-        -- PC: chuột phải
-        if input.UserInputType == Enum.UserInputType.MouseButton2 then
-            doThrow()
-        -- Mobile: chạm 2 ngón
-        elseif input.UserInputType == Enum.UserInputType.Touch then
-            -- đếm số ngón đang chạm
-            local touchCount = 0
-            for _, t in ipairs(userInputService:GetTouches()) do
-                touchCount = touchCount + 1
-            end
-            if touchCount >= 2 then
-                doThrow()
-            end
-        end
-    end)
 
-    task.spawn(function()
-        while _grabIsActive(part) do task.wait(0.1) end
-        if throwConn then throwConn:Disconnect() end
-    end)
-end
+        -- ⭐ NEW: Sky Grab (BodyVelocity up)
+        if modes["Sky Grab"] then
+            handleSkyGrab(child)
+        end
+
+        -- ⭐ NEW: Teleport Up
+        if modes["Teleport Up"] then
+            handleTeleportGrab(child, "up")
+        end
+
+        -- ⭐ NEW: Teleport Down
+        if modes["Teleport Down"] then
+            handleTeleportGrab(child, "down")
+        end
+
+        -- ⭐ NEW: Chaos Grab
+        if modes["Chaos Grab"] then
+            handleChaosGrab(child, function() return state.grabModes["Chaos Grab"] end)
+        end
+
+        -- ⭐ NEW: Supersonic Grab
+        if modes["Supersonic Grab"] then
+            handleSupersonicGrab(child)
+        end
+
+        -- ⭐ NEW: Freeze Grab
+        if modes["Freeze Grab"] then
+            handleFreezeGrab(child)
+        end
 
         if modes["Massless"] then
             task.spawn(function()
@@ -5768,92 +6610,362 @@ end
 
     makeSection(auraTab, "Grab Modes")
     -- ==========================================
--- INFINITY EXTEND (kéo dài grab line vô hạn)
+-- ⭐ INFINITY EXTEND (PORTED 100% từ PoopHub/Resonance)
+-- Thực sự kéo dài reach bằng BodyPosition trên GrabPart
+-- Scroll wheel (PC) / Buttons (Mobile) để tăng giảm khoảng cách
 -- ==========================================
 do
-    local infExtendActive = false
+    local infExtendActive = state.infinityExtendOn or false
     local infExtendConn = nil
-    local ORIG_BEAM_LEN = nil
+    local infExtendScrollConn = nil
+    local currentDistance = state.infinityExtendDist or 12
+    local camera = workspace.CurrentCamera
+    local activeGrabParts = nil
 
-    local function getBeam()
-        local gp = workspace_:FindFirstChild("GrabParts")
-        return gp and gp:FindFirstChild("BeamPart") and gp.BeamPart:FindFirstChild("GrabBeam")
-    end
+    local function applyInfExtend(gp)
+        if not gp or not gp.Parent then return end
+        local grabPart = gp:WaitForChild("GrabPart", 2)
+        local dragPart = gp:WaitForChild("DragPart", 2)
+        if not grabPart or not dragPart then return end
+        local weld = grabPart:WaitForChild("WeldConstraint", 2)
+        if not weld or not weld.Part1 then return end
 
-    local function applyInfExtend()
-        local beam = getBeam()
-        if not beam or not beam:IsA("Beam") then return end
-        if ORIG_BEAM_LEN == nil then ORIG_BEAM_LEN = beam.CurveSize0 end
-        beam.CurveSize0 = 999999
-        beam.CurveSize1 = 999999
-        beam.Segments = 10
-        -- mở rộng Attachment1 ra xa (nếu có)
-        local gp = workspace_:FindFirstChild("GrabParts")
-        local bp = gp and gp:FindFirstChild("BeamPart")
-        if bp then
-            local a1 = bp:FindFirstChild("Attachment1")
-            if a1 and a1:IsA("Attachment") then
-                a1.Position = Vector3.new(0, 0, 999999)
+        -- Xóa BP cũ nếu có
+        local oldBP = grabPart:FindFirstChild("_RYZE_InfExtendBP")
+        if oldBP then oldBP:Destroy() end
+
+        local bp = Instance.new("BodyPosition")
+        bp.Name = "_RYZE_InfExtendBP"
+        bp.MaxForce = Vector3.new(275000, 275000, 275000)
+        bp.P = 20000
+        bp.D = 950
+        bp.Position = weld.Part1.Position
+        bp.Parent = grabPart
+
+        if currentDistance < 11 then currentDistance = 11 end
+        local baseDist = (grabPart.Position - camera.CFrame.Position).Magnitude
+        if baseDist > currentDistance then currentDistance = baseDist end
+
+        -- Disable AlignPosition trên DragPart để BP điều khiển tự do
+        local alignPos = dragPart:FindFirstChildOfClass("AlignPosition")
+        if alignPos then alignPos.Enabled = false end
+
+        task.spawn(function()
+            while infExtendActive and gp.Parent and grabPart.Parent and bp.Parent do
+                pcall(function()
+                    bp.Position = camera.CFrame.Position + camera.CFrame.LookVector * currentDistance
+                end)
+                task.wait()
             end
-        end
+            pcall(function() bp:Destroy() end)
+        end)
     end
 
-    local function restoreInfExtend()
-        local beam = getBeam()
-        if beam and beam:IsA("Beam") and ORIG_BEAM_LEN ~= nil then
-            beam.CurveSize0 = ORIG_BEAM_LEN
-            beam.CurveSize1 = ORIG_BEAM_LEN
-            beam.Segments = 1
-            ORIG_BEAM_LEN = nil
-        end
+    local function setupScrollWheel()
+        if infExtendScrollConn then infExtendScrollConn:Disconnect() infExtendScrollConn = nil end
+        infExtendScrollConn = userInputService.InputChanged:Connect(function(input)
+            if not infExtendActive then return end
+            if input.UserInputType ~= Enum.UserInputType.MouseWheel then return end
+            if currentDistance < 11 then currentDistance = 11 end
+            local step = state.infExtendStep or 3
+            if input.Position.Z < 0 then
+                currentDistance = currentDistance - step
+            else
+                currentDistance = currentDistance + step
+            end
+            if currentDistance < 11 then currentDistance = 11 end
+        end)
     end
 
-    makeToggle(auraTab, "Infinity Extend", false, function(on)
+    local function makeMobileButton(text, yOffset, cb)
+        local btn = Instance.new("TextButton")
+        btn.Name = "_RYZE_InfExtend_" .. text
+        btn.Size = UDim2.new(0, 45, 0, 45)
+        btn.Position = UDim2.new(1, -70, 1, yOffset)
+        btn.BackgroundColor3 = Color3.fromRGB(30, 30, 40)
+        btn.BackgroundTransparency = 0.3
+        btn.BorderSizePixel = 0
+        btn.Text = text
+        btn.TextColor3 = Color3.fromRGB(240, 240, 245)
+        btn.Font = Enum.Font.GothamBold
+        btn.TextSize = 20
+        btn.AutoButtonColor = false
+        btn.Visible = false
+        btn.ZIndex = 100
+        btn.Parent = gui
+        Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+        local stroke = Instance.new("UIStroke", btn)
+        stroke.Color = Color3.fromRGB(115, 95, 245)
+        stroke.Thickness = 1
+        stroke.Transparency = 0.5
+        btn.MouseButton1Click:Connect(cb)
+        return btn
+    end
+
+    local btnUp = makeMobileButton("+", -259, function()
+        if not infExtendActive then return end
+        if currentDistance < 11 then currentDistance = 11 end
+        currentDistance = currentDistance + (state.infExtendStep or 3)
+    end)
+    local btnDown = makeMobileButton("-", -211, function()
+        if not infExtendActive then return end
+        if currentDistance < 11 then currentDistance = 11 end
+        currentDistance = currentDistance - (state.infExtendStep or 3)
+        if currentDistance < 11 then currentDistance = 11 end
+    end)
+
+    makeSlider(auraTab, "Inf Extend Step", 3, 1, 25, function(v)
+        state.infExtendStep = v
+    end)
+    makeSlider(auraTab, "Inf Extend Base Distance", state.infinityExtendDist or 12, 11, 500, function(v)
+        currentDistance = v
+        state.infinityExtendDist = v
+    end)
+
+    makeToggle(auraTab, "Infinity Extend", state.infinityExtendOn or false, function(on)
         infExtendActive = on
+        state.infinityExtendOn = on
         if infExtendConn then infExtendConn:Disconnect() infExtendConn = nil end
         if not on then
-            restoreInfExtend()
+            -- Cleanup
+            local gp = workspace_:FindFirstChild("GrabParts")
+            if gp then
+                local grabPart = gp:FindFirstChild("GrabPart")
+                if grabPart then
+                    local bp = grabPart:FindFirstChild("_RYZE_InfExtendBP")
+                    if bp then bp:Destroy() end
+                end
+                local dragPart = gp:FindFirstChild("DragPart")
+                if dragPart then
+                    local alignPos = dragPart:FindFirstChildOfClass("AlignPosition")
+                    if alignPos then alignPos.Enabled = true end
+                end
+            end
+            if infExtendScrollConn then infExtendScrollConn:Disconnect() infExtendScrollConn = nil end
+            btnUp.Visible = false
+            btnDown.Visible = false
             return
         end
-        -- áp dụng mỗi khi GrabParts xuất hiện
+
+        setupScrollWheel()
+
+        -- Mobile buttons hiện khi TouchEnabled
+        if userInputService.TouchEnabled then
+            btnUp.Visible = true
+            btnDown.Visible = true
+        end
+
+        -- GrabParts đang có sẵn → apply
+        local existing = workspace_:FindFirstChild("GrabParts")
+        if existing then
+            task.spawn(function() applyInfExtend(existing) end)
+        end
+
+        -- Lắng nghe GrabParts mới
         infExtendConn = workspace_.ChildAdded:Connect(function(child)
             if not infExtendActive then return end
             if child.Name == "GrabParts" then
                 task.wait(0.05)
-                applyInfExtend()
-                task.spawn(function()
-                    for _ = 1, 30 do
-                        if not infExtendActive then break end
-                        applyInfExtend()
-                        task.wait(0.05)
-                    end
-                end)
+                applyInfExtend(child)
             end
         end)
-        -- nếu đang grab sẵn thì áp dụng ngay
-        applyInfExtend()
+    end)
+
+     gui.Destroying:Connect(function()
+        infExtendActive = false
+        if infExtendConn then infExtendConn:Disconnect() end
+        if infExtendScrollConn then infExtendScrollConn:Disconnect() end
+        if btnUp and btnUp.Parent then btnUp:Destroy() end
+        if btnDown and btnDown.Parent then btnDown:Destroy() end
+        local gp = workspace_:FindFirstChild("GrabParts")
+        if gp then
+            local grabPart = gp:FindFirstChild("GrabPart")
+            if grabPart then
+                local bp = grabPart:FindFirstChild("_RYZE_InfExtendBP")
+                if bp then bp:Destroy() end
+            end
+            local dragPart = gp:FindFirstChild("DragPart")
+            if dragPart then
+                local alignPos = dragPart:FindFirstChildOfClass("AlignPosition")
+                if alignPos then alignPos.Enabled = true end
+            end
+        end
+    end)
+end
+
+-- ==========================================
+-- ⭐ SUPER STRENGTH (PORTED 100% từ PoopHub)
+-- Cơ chế:
+--   1. GrabParts xuất hiện → tạo BodyVelocity MaxForce=0 trên weld.Part1
+--   2. Khi release (Parent = nil) → check GetLastInputType():
+--      - MB2 (PC right click) / MB1 / Touch / _G.MobileSuperStrengthTriggered
+--      → THROW: boost BV theo LookVector
+--      - Còn lại → destroy BV (drop bình thường, không lag)
+--   3. Mobile: overlay textButton vô hình lên nút "Throw" native của game
+--      (ContextActionGui > ContextButtonFrame > ImageLabel 9603669631)
+-- ==========================================
+do
+    state.superStrength = false
+    state.superStrengthPower = 5000
+    state._ssConn = nil
+    _G.MobileSuperStrengthTriggered = false
+
+    -- ⭐ Mobile: text button vô hình để bắt touch trên nút "Throw" native
+    local mobileThrowBtn = Instance.new("TextButton")
+    mobileThrowBtn.Name = "_RYZE_MobileThrowBtn"
+    mobileThrowBtn.BackgroundTransparency = 1
+    mobileThrowBtn.Text = ""
+    mobileThrowBtn.Active = false
+    mobileThrowBtn.Visible = false
+    mobileThrowBtn.ZIndex = 999
+    mobileThrowBtn.Parent = gui
+
+    local function setupThrowButton()
+        task.spawn(function()
+            local pg = localPlayer:FindFirstChild("PlayerGui")
+            pg = pg and pg:WaitForChild("ContextActionGui", 5)
+            pg = pg and pg:WaitForChild("ContextButtonFrame", 5)
+            if not pg then return end
+
+            local conn = nil
+            local function checkAndMove(inst)
+                if inst:IsA("ImageLabel") and inst.Image == "rbxassetid://9603669631" then
+                    if inst.Parent and inst.Parent:IsA("GuiObject") then
+                        mobileThrowBtn.Parent = inst.Parent
+                        mobileThrowBtn.Position = UDim2.new(0, 0, 0, 0)
+                        mobileThrowBtn.Size = UDim2.new(1, 0, 1, 0)
+                        return true
+                    end
+                end
+                return false
+            end
+
+            for _, d in ipairs(pg:GetDescendants()) do
+                if checkAndMove(d) then return end
+            end
+            conn = pg.DescendantAdded:Connect(function(d)
+                if checkAndMove(d) and conn then conn:Disconnect() end
+            end)
+        end)
+    end
+    setupThrowButton()
+
+    -- ⭐ Mobile: bắt sự kiện touch trên nút throw → set trigger flag
+    mobileThrowBtn.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch
+            or input.UserInputType == Enum.UserInputType.MouseButton1 then
+            if mobileThrowBtn.Visible then
+                _G.MobileSuperStrengthTriggered = true
+                task.delay(0.5, function() _G.MobileSuperStrengthTriggered = false end)
+            end
+        end
+    end)
+
+    -- ⭐ PC + Mobile: workspace.ChildAdded → apply BodyVelocity trên target
+    local function attachSuperStrengthListener()
+        if state._ssConn then state._ssConn:Disconnect() state._ssConn = nil end
+        state._ssConn = workspace_.ChildAdded:Connect(function(child)
+            if child.Name ~= "GrabParts" then return end
+            if not state.superStrength then return end
+            task.spawn(function()
+                local grabPart = child:WaitForChild("GrabPart", 5)
+                if not grabPart then return end
+                local weld = grabPart:FindFirstChild("WeldConstraint")
+                if not weld or not weld.Part1 then return end
+                local targetPart = weld.Part1
+
+                -- Xoá BV cũ nếu có
+                local oldBV = targetPart:FindFirstChild("_RYZE_SSBV")
+                if oldBV then oldBV:Destroy() end
+
+                -- ⭐ Tạo BV 0 force → chưa làm gì target
+                local bv = Instance.new("BodyVelocity")
+                bv.Name = "_RYZE_SSBV"
+                bv.MaxForce = Vector3.zero
+                bv.Velocity = Vector3.zero
+                bv.Parent = targetPart
+
+                -- ⭐ Lắng nghe release
+                local parentConn
+                parentConn = child:GetPropertyChangedSignal("Parent"):Connect(function()
+                    if child.Parent then return end
+                    if parentConn then parentConn:Disconnect() end
+
+                    local lastInput = userInputService:GetLastInputType()
+                    local isMB2 = lastInput == Enum.UserInputType.MouseButton2
+                    local isMB1 = lastInput == Enum.UserInputType.MouseButton1
+                    local isTouch = lastInput == Enum.UserInputType.Touch
+                    local mobileTrig = _G.MobileSuperStrengthTriggered
+
+                    -- Logic y hệt Poop: MB2 hoặc mobileTrig → throw
+                    --                 MB1 / Touch / khác (không phải throw) → drop sạch
+                    local shouldThrow = isMB2 or mobileTrig
+
+                    if shouldThrow and state.superStrength then
+                        bv.MaxForce = Vector3.new(math.huge, math.huge, math.huge)
+                        bv.Velocity = workspace.CurrentCamera.CFrame.LookVector * (state.superStrengthPower or 5000)
+                        Debris:AddItem(bv, 1)
+                    else
+                        bv:Destroy()
+                    end
+                end)
+            end)
+        end)
+    end
+
+    -- ⭐ Toggle UI
+    makeToggle(auraTab, "Super Strength (Throw on Release)", false, function(on)
+        state.superStrength = on
+        mobileThrowBtn.Visible = on
+        if on then
+            attachSuperStrengthListener()
+        else
+            if state._ssConn then state._ssConn:Disconnect() state._ssConn = nil end
+        end
+    end)
+
+    -- ⭐ Slider force (10-10000, mặc định 5000)
+    makeSlider(auraTab, "Super Strength Force", 5000, 10, 10000, function(v)
+        state.superStrengthPower = v
     end)
 
     gui.Destroying:Connect(function()
-        infExtendActive = false
-        if infExtendConn then infExtendConn:Disconnect() end
-        restoreInfExtend()
+        if state._ssConn then state._ssConn:Disconnect() end
+        if mobileThrowBtn and mobileThrowBtn.Parent then mobileThrowBtn:Destroy() end
     end)
 end
-    makeSlider(auraTab, "Super Strength Power", 5, 1, 10, function(v) state.grabStrengthPower = v end)
+ 
     makeSlider(auraTab, "Spin Speed", 5, 1, 10, function(v) state.grabSpinSpeed = v end)
+    makeSlider(auraTab, "Supersonic Force", 350, 100, 1000, function(v) state.supersonicForce = v end)
+    makeSlider(auraTab, "Teleport Distance", 30, 10, 100, function(v) state.tpGrabDist = v end)
+    makeSlider(auraTab, "Freeze Distance", 0, -10, 10, function(v) state.freezeDist = v end)
+    makeSlider(auraTab, "Chaos Range", 50, 10, 200, function(v) state.chaosRange = v end)
+    makeToggle(auraTab, "Chaos Spin", false, function(on) state.chaosSpin = on end)
+
     local grabModesList = {
-        "Super Strength", "Kill Grab", "Void Grab", "Teleport to Spawn",
-        "Massless", "Spin", "Ragdoll Grab", "Invisible",
-        "Free", "Noclip", "Unstick"
+        "Kill Grab",
+        "Void Grab",
+        "Teleport to Spawn",
+        "Massless",
+        "Spin",
+        "Ragdoll Grab",
+        "Invisible",
+        "Free",
+        "Noclip",
+        "Unstick",
+        -- ⭐ NEW from PoopHub/Resonance
+        "Sky Grab",
+        "Teleport Up",
+        "Teleport Down",
+        "Chaos Grab",
+        "Supersonic Grab",
+        "Freeze Grab",
     }
     for _, mode in ipairs(grabModesList) do
         makeToggle(auraTab, "Grab: " .. mode, false, function(on)
             state.grabModes[mode] = on or nil
         end)
     end
-
-    
 end
 
 -- ==========================================
@@ -6679,13 +7791,14 @@ do
         end)
     end
 
-    function serializeValue(val)
+        function serializeValue(val)
         local t = typeof(val)
         if t == "number" or t == "string" or t == "boolean" then
             return val
         elseif t == "EnumItem" then
-            -- FIX: Lấy đúng tên Enum (VD: KeyCode thay vì Enum.KeyCode)
-            return {_type = "EnumItem", enum = val.EnumType.Name, name = val.Name}
+            -- ⭐ FIX LỖI: Enum.KeyCode không có .Name, phải dùng tostring và cắt chuỗi
+            local enumName = string.gsub(tostring(val.EnumType), "Enum%.", "")
+            return {_type = "EnumItem", enum = enumName, name = val.Name}
         elseif t == "Color3" then
             return {_type = "Color3", r = val.R, g = val.G, b = val.B}
         elseif t == "table" then
@@ -6945,9 +8058,1524 @@ do
     makeToggle(targetTab, "Loop Extra (Server)", false, function(on) state.extraLoopServer = on end)
 end
 
-print("[RYZE v3.0] Module 17 loaded: Extra Target Methods")
+
 
 end
+
+-- ==========================================
+-- ⭐ BƯỚC 17 (FULL): FUN VISUAL PACK
+-- Halo · Angel Wings · Ambient Aura · Trail
+-- Rainbow · Body Material · Umbrella · Free Camera
+-- Save/load qua state.visual.* (tự động)
+-- ==========================================
+do
+    state.visual = state.visual or {
+        haloOn = false, haloColor = Color3.fromRGB(133, 220, 255),
+        haloRate = 7, haloBright = 2, haloY = 1.5,
+
+        wingsOn = false, wingsColor = Color3.fromRGB(133, 220, 255),
+        wingsRate = 4, wingsBright = 1, wingsSpread = 1,
+
+        auraOn = false, auraColor = Color3.fromRGB(133, 220, 255),
+        auraRate = 20, auraBright = 2,
+
+        trailOn = false, trailColor = Color3.fromRGB(133, 220, 255),
+        trailWidth = 1.5, trailLifetime = 0.4,
+
+        rainbowOn = false, rainbowSpeed = 0.5,
+        rainbowHalo = true, rainbowWings = true,
+        rainbowAura = true, rainbowTrail = true,
+
+        bodyMatOn = false, bodyMatType = "Neon",
+        bodyMatColor = Color3.fromRGB(180, 200, 255),
+        bodyMatRainbow = false,
+
+        umbrellaOn = false, umbrellaColor = Color3.fromRGB(255, 255, 255),
+        umbrellaTransparency = 0.3, umbrellaSize = 2.4, umbrellaY = 1.1,
+
+        freeCamOn = false, freeCamSpeed = 50,
+    }
+    local V = state.visual
+
+    -- ==========================================
+    -- FOLDER + ROOT PARTS (tạo 1 lần, dùng mãi)
+    -- ==========================================
+    local folder = workspace:FindFirstChild("RYZE_Visuals")
+    if not folder then
+        folder = Instance.new("Folder")
+        folder.Name = "RYZE_Visuals"
+        folder.Parent = workspace
+    end
+
+    local function mkRootPart(name, size, material)
+        local p = folder:FindFirstChild(name)
+        if p then return p end
+        p = Instance.new("Part")
+        p.Name = name
+        p.Size = size
+        p.Anchored = true
+        p.CanCollide = false
+        p.CanQuery = false
+        p.CanTouch = false
+        p.Transparency = 1
+        p.Massless = true
+        p.Material = material or Enum.Material.ForceField
+        p.Parent = folder
+        return p
+    end
+
+    local haloRoot = mkRootPart("HaloRoot", Vector3.new(2, 1, 1))
+    local wingsRoot = mkRootPart("WingsRoot", Vector3.new(2, 2, 1))
+    local auraRoot = mkRootPart("AuraRoot", Vector3.new(2, 2, 2))
+    local trailRoot = mkRootPart("TrailRoot", Vector3.new(0.1, 0.1, 0.1))
+
+    -- ==========================================
+    -- HALO
+    -- ==========================================
+    local haloAtt = haloRoot:FindFirstChild("Att")
+    if not haloAtt then
+        haloAtt = Instance.new("Attachment")
+        haloAtt.Name = "Att"
+        haloAtt.CFrame = CFrame.new(-0.25, 0.93, 0.25, 0.4689, -0.2499, -0.8471, -0.1171, 0.933, -0.3401, 0.8754, 0.2587, 0.4082)
+        haloAtt.Parent = haloRoot
+    end
+
+    local function mkHaloRing(name, sizeStart, sizeEnd)
+        local e = haloAtt:FindFirstChild(name)
+        if e then return e end
+        e = Instance.new("ParticleEmitter")
+        e.Name = name
+        e.Texture = "rbxassetid://8819682608"
+        e.Rate = V.haloRate
+        e.Lifetime = NumberRange.new(1, 1)
+        e.Speed = NumberRange.new(0.001, 0.001)
+        e.RotSpeed = NumberRange.new(-400, 400)
+        e.Rotation = NumberRange.new(0, 360)
+        e.Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, sizeStart),
+            NumberSequenceKeypoint.new(1, sizeEnd),
+        })
+        e.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.2, 0),
+            NumberSequenceKeypoint.new(0.8, 0),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        e.LightEmission = 1
+        e.SpreadAngle = Vector2.new(5, 5)
+        e.LockedToPart = true
+        e.Shape = Enum.ParticleEmitterShape.Box
+        e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+        e.ShapeInOut = Enum.ParticleEmitterShapeInOut.Outward
+        e.Orientation = Enum.ParticleOrientation.VelocityPerpendicular
+        e.Enabled = false
+        e.Parent = haloAtt
+        return e
+    end
+    local halo1 = mkHaloRing("Ring1", 2.5, 3)
+    local halo2 = mkHaloRing("Ring2", 2, 3)
+
+    local function applyHaloColor(c) halo1.Color = ColorSequence.new(c) halo2.Color = ColorSequence.new(c) end
+    local function applyHaloBright(b) halo1.Brightness = b halo2.Brightness = b end
+    local function applyHaloRate(r) halo1.Rate = r halo2.Rate = r end
+    local function applyHaloEnabled(on) halo1.Enabled = on halo2.Enabled = on end
+
+    -- ==========================================
+    -- ANGEL WINGS
+    -- ==========================================
+    local wlAtt = wingsRoot:FindFirstChild("L")
+    if not wlAtt then
+        wlAtt = Instance.new("Attachment")
+        wlAtt.Name = "L"
+        wlAtt.CFrame = CFrame.new(-1.012 * V.wingsSpread, 0.5, 0.852) * CFrame.Angles(0, 0.2618, 0)
+        wlAtt.Parent = wingsRoot
+    end
+    local wrAtt = wingsRoot:FindFirstChild("R")
+    if not wrAtt then
+        wrAtt = Instance.new("Attachment")
+        wrAtt.Name = "R"
+        wrAtt.CFrame = CFrame.new(1.167 * V.wingsSpread, 0.5, 0.852) * CFrame.Angles(0, -0.2618, 0)
+        wrAtt.Parent = wingsRoot
+    end
+
+    local function mkWingParticle(parent, dir)
+        local e = parent:FindFirstChild("WingEmit")
+        if e then return e end
+        e = Instance.new("ParticleEmitter")
+        e.Name = "WingEmit"
+        e.Texture = "rbxassetid://13267054240"
+        e.Rate = V.wingsRate
+        e.Lifetime = NumberRange.new(1, 1)
+        e.Speed = NumberRange.new(0.05, 0.05)
+        e.RotSpeed = NumberRange.new(0, 0)
+        e.Rotation = NumberRange.new(-15, -15)
+        e.Size = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 2.75),
+            NumberSequenceKeypoint.new(1, 3.5),
+        })
+        e.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.944),
+            NumberSequenceKeypoint.new(0.2, 0),
+            NumberSequenceKeypoint.new(0.8, 0),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        e.LightEmission = 1
+        e.LockedToPart = true
+        e.Shape = Enum.ParticleEmitterShape.Box
+        e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+        e.ShapeInOut = Enum.ParticleEmitterShapeInOut.Outward
+        e.Orientation = Enum.ParticleOrientation.VelocityPerpendicular
+        e.EmissionDirection = dir
+        e.SpreadAngle = Vector2.new(0, 0)
+        e.VelocitySpread = 0
+        e.Enabled = false
+        e.Parent = parent
+        return e
+    end
+    local wlP = mkWingParticle(wlAtt, Enum.NormalId.Back)
+    local wrP = mkWingParticle(wrAtt, Enum.NormalId.Front)
+
+    local function applyWingsColor(c) wlP.Color = ColorSequence.new(c) wrP.Color = ColorSequence.new(c) end
+    local function applyWingsRate(r) wlP.Rate = r wrP.Rate = r end
+    local function applyWingsBright(b) wlP.Brightness = b wrP.Brightness = b end
+    local function applyWingsEnabled(on) wlP.Enabled = on wrP.Enabled = on end
+    local function applyWingsSpread(s)
+        wlAtt.CFrame = CFrame.new(-1.012 * s, 0.5, 0.852) * CFrame.Angles(0, 0.2618, 0)
+        wrAtt.CFrame = CFrame.new(1.167 * s, 0.5, 0.852) * CFrame.Angles(0, -0.2618, 0)
+    end
+
+    -- ==========================================
+    -- AMBIENT AURA
+    -- ==========================================
+    local function mkAura(name, texture, sizeKeys, transKeys, rotSpeed)
+        local e = auraRoot:FindFirstChild(name)
+        if e then return e end
+        e = Instance.new("ParticleEmitter")
+        e.Name = name
+        e.Texture = texture
+        e.Rate = V.auraRate
+        e.Lifetime = NumberRange.new(2, 2)
+        e.Speed = NumberRange.new(0.001, 0.001)
+        e.RotSpeed = NumberRange.new(-rotSpeed, rotSpeed)
+        e.Rotation = NumberRange.new(0, 360)
+        e.Size = NumberSequence.new(sizeKeys)
+        e.Transparency = NumberSequence.new(transKeys)
+        e.LightEmission = 1
+        e.LockedToPart = true
+        e.EmissionDirection = Enum.NormalId.Top
+        e.Shape = Enum.ParticleEmitterShape.Box
+        e.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+        e.ShapeInOut = Enum.ParticleEmitterShapeInOut.Outward
+        e.Orientation = Enum.ParticleOrientation.VelocityPerpendicular
+        e.Enabled = false
+        e.Parent = auraRoot
+        return e
+    end
+    local aura1 = mkAura("A1", "rbxassetid://12713358087",
+        { NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 1),
+          NumberSequenceKeypoint.new(0.6, 2.5), NumberSequenceKeypoint.new(0.8, 4),
+          NumberSequenceKeypoint.new(1, 6) },
+        { NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(1, 1) }, 600)
+    local aura2 = mkAura("A2", "rbxassetid://7216849325",
+        { NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 1),
+          NumberSequenceKeypoint.new(0.6, 2.5), NumberSequenceKeypoint.new(0.8, 4),
+          NumberSequenceKeypoint.new(1, 6) },
+        { NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.6, 0.2),
+          NumberSequenceKeypoint.new(1, 1) }, 30)
+    local aura3 = mkAura("A3", "rbxassetid://7216855136",
+        { NumberSequenceKeypoint.new(0, 0), NumberSequenceKeypoint.new(0.3, 2),
+          NumberSequenceKeypoint.new(0.6, 5), NumberSequenceKeypoint.new(0.8, 8),
+          NumberSequenceKeypoint.new(1, 12) },
+        { NumberSequenceKeypoint.new(0, 1), NumberSequenceKeypoint.new(0.2, 0.3),
+          NumberSequenceKeypoint.new(1, 1) }, 40)
+    local auraList = { aura1, aura2, aura3 }
+
+    local function applyAuraColor(c) for _, e in ipairs(auraList) do e.Color = ColorSequence.new(c) end end
+    local function applyAuraRate(r) for _, e in ipairs(auraList) do e.Rate = r end end
+    local function applyAuraBright(b) for _, e in ipairs(auraList) do e.Brightness = b end end
+    local function applyAuraEnabled(on) for _, e in ipairs(auraList) do e.Enabled = on end end
+
+    -- ==========================================
+    -- TRAIL
+    -- ==========================================
+    local tAttA = trailRoot:FindFirstChild("TA")
+    if not tAttA then
+        tAttA = Instance.new("Attachment")
+        tAttA.Name = "TA"
+        tAttA.Position = Vector3.new(0, 0.5, 0)
+        tAttA.Parent = trailRoot
+    end
+    local tAttB = trailRoot:FindFirstChild("TB")
+    if not tAttB then
+        tAttB = Instance.new("Attachment")
+        tAttB.Name = "TB"
+        tAttB.Position = Vector3.new(0, -0.5, 0)
+        tAttB.Parent = trailRoot
+    end
+    local trail = trailRoot:FindFirstChild("Tr")
+    if not trail then
+        trail = Instance.new("Trail")
+        trail.Name = "Tr"
+        trail.Attachment0 = tAttA
+        trail.Attachment1 = tAttB
+        trail.FaceCamera = true
+        trail.LightEmission = 1
+        trail.LightInfluence = 0
+        trail.Brightness = 2
+        trail.MinLength = 0.01
+        trail.Lifetime = V.trailLifetime
+        trail.Enabled = false
+        trail.Parent = trailRoot
+    end
+
+    local function applyTrailColor(c) trail.Color = ColorSequence.new(c) end
+    local function applyTrailWidth(w)
+        tAttA.Position = Vector3.new(0, w / 2, 0)
+        tAttB.Position = Vector3.new(0, -w / 2, 0)
+        trail.WidthScale = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 1),
+            NumberSequenceKeypoint.new(0.4, 0.6 * w / 1.5),
+            NumberSequenceKeypoint.new(0.7, 0.25 * w / 1.5),
+            NumberSequenceKeypoint.new(1, 0),
+        })
+    end
+    local function applyTrailEnabled(on) trail.Enabled = on end
+    local function applyTrailLifetime(l) trail.Lifetime = l end
+
+    -- ==========================================
+    -- BODY MATERIAL
+    -- ==========================================
+    local bodyMatSaved = {}
+    local bodyMatFolder = nil
+    local function applyBodyMaterial()
+        local char = localPlayer.Character
+        if not char then return end
+        -- Xoá folder cũ + folder orphan từ lần inject trước (nếu có)
+        if bodyMatFolder then pcall(function() bodyMatFolder:Destroy() end) end
+        local orphan = localPlayer:FindFirstChild("_RYZE_BodyMatStash")
+        while orphan do
+            pcall(function() orphan:Destroy() end)
+            orphan = localPlayer:FindFirstChild("_RYZE_BodyMatStash")
+        end
+        bodyMatFolder = Instance.new("Folder")
+        bodyMatFolder.Name = "_RYZE_BodyMatStash"
+        bodyMatFolder.Parent = localPlayer
+        for _, obj in ipairs(char:GetChildren()) do
+            if obj:IsA("Shirt") or obj:IsA("Pants") or obj:IsA("ShirtGraphic") then
+                obj.Parent = bodyMatFolder
+            end
+        end
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("SurfaceAppearance") then
+                d.Parent = bodyMatFolder
+            end
+        end
+        bodyMatSaved = {}
+        for _, d in ipairs(char:GetDescendants()) do
+            if d:IsA("BasePart") and d.Name ~= "HumanoidRootPart" then
+                bodyMatSaved[d] = { mat = d.Material, col = d.Color }
+                pcall(function()
+                    d.Material = Enum.Material[V.bodyMatType] or Enum.Material.Neon
+                    d.Color = V.bodyMatColor
+                end)
+            end
+        end
+    end
+    local function removeBodyMaterial()
+        for part, info in pairs(bodyMatSaved) do
+            if part and part.Parent then
+                pcall(function()
+                    part.Material = info.mat
+                    part.Color = info.col
+                end)
+            end
+        end
+        bodyMatSaved = {}
+        if bodyMatFolder then
+            pcall(function() bodyMatFolder:Destroy() end)
+            bodyMatFolder = nil
+        end
+    end
+    local function applyBodyMatColor(c)
+        for part in pairs(bodyMatSaved) do
+            if part and part.Parent then
+                pcall(function() part.Color = c end)
+            end
+        end
+    end
+
+    -- ==========================================
+    -- UMBRELLA HAT
+    -- ==========================================
+    local umbrellaPart = nil
+    local function buildUmbrella()
+        if umbrellaPart then pcall(function() umbrellaPart:Destroy() end) umbrellaPart = nil end
+        local char = localPlayer.Character
+        local head = char and char:FindFirstChild("Head")
+        if not head then return end
+        local p = Instance.new("Part")
+        p.Name = "_RYZE_Umbrella"
+        p.Transparency = V.umbrellaTransparency
+        p.Color = V.umbrellaColor
+        p.Material = Enum.Material.Neon
+        p.CanCollide = false
+        p.CanTouch = false
+        p.CanQuery = false
+        p.Massless = true
+        p.Size = Vector3.new(4, 1, 4)
+        local m = Instance.new("SpecialMesh")
+        m.MeshId = "rbxassetid://1033714"
+        m.Scale = Vector3.new(V.umbrellaSize, V.umbrellaSize * 0.6667, V.umbrellaSize)
+        m.Parent = p
+        local w = Instance.new("WeldConstraint")
+        w.Part0 = head
+        w.Part1 = p
+        w.Parent = p
+        p.CFrame = head.CFrame * CFrame.new(0, V.umbrellaY, 0)
+        p.Parent = char
+        umbrellaPart = p
+    end
+    local function destroyUmbrella()
+        if umbrellaPart then
+            pcall(function() umbrellaPart:Destroy() end)
+            umbrellaPart = nil
+        end
+    end
+
+    -- ==========================================
+    -- FREE CAMERA
+    -- ==========================================
+    local freeCamConn = nil
+    local function startFreeCam()
+        local char = localPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        hrp.Anchored = true
+        local cam = workspace.CurrentCamera
+        cam.CameraType = Enum.CameraType.Scriptable
+        if freeCamConn then freeCamConn:Disconnect() end
+        freeCamConn = runService.RenderStepped:Connect(function(dt)
+            if not V.freeCamOn then
+                if freeCamConn then freeCamConn:Disconnect() freeCamConn = nil end
+                return
+            end
+            local c = workspace.CurrentCamera
+            local move = Vector3.zero
+            if userInputService:IsKeyDown(Enum.KeyCode.W) then move += c.CFrame.LookVector end
+            if userInputService:IsKeyDown(Enum.KeyCode.S) then move -= c.CFrame.LookVector end
+            if userInputService:IsKeyDown(Enum.KeyCode.A) then move -= c.CFrame.RightVector end
+            if userInputService:IsKeyDown(Enum.KeyCode.D) then move += c.CFrame.RightVector end
+            if userInputService:IsKeyDown(Enum.KeyCode.Space) then move += Vector3.new(0, 1, 0) end
+            if userInputService:IsKeyDown(Enum.KeyCode.LeftControl) then move -= Vector3.new(0, 1, 0) end
+            if move.Magnitude > 0 then
+                c.CFrame = c.CFrame + move.Unit * V.freeCamSpeed * dt
+            end
+        end)
+    end
+    local function stopFreeCam()
+        if freeCamConn then freeCamConn:Disconnect() freeCamConn = nil end
+        local char = localPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.Anchored = false end
+        if workspace.CurrentCamera then
+            workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+        end
+    end
+
+    -- ==========================================
+    -- RENDER LOOP (vị trí + rainbow)
+    -- ==========================================
+    runService.RenderStepped:Connect(function(dt)
+        if not gui.Parent then return end
+        local char = localPlayer.Character
+        local head = char and char:FindFirstChild("Head")
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if not (head and hrp) then return end
+
+        local rainbowColor = nil
+        if V.rainbowOn then
+            local hue = (tick() * V.rainbowSpeed) % 1
+            rainbowColor = Color3.fromHSV(hue, 0.85, 1)
+        end
+
+        if V.haloOn then
+            haloRoot.CFrame = CFrame.new(head.Position + Vector3.new(0, V.haloY, 0))
+            applyHaloColor((V.rainbowOn and V.rainbowHalo and rainbowColor) or V.haloColor)
+        end
+        applyHaloEnabled(V.haloOn)
+
+        if V.wingsOn then
+            wingsRoot.CFrame = hrp.CFrame
+            applyWingsColor((V.rainbowOn and V.rainbowWings and rainbowColor) or V.wingsColor)
+        end
+        applyWingsEnabled(V.wingsOn)
+
+        if V.auraOn then
+            auraRoot.CFrame = hrp.CFrame
+            applyAuraColor((V.rainbowOn and V.rainbowAura and rainbowColor) or V.auraColor)
+        end
+        applyAuraEnabled(V.auraOn)
+
+        if V.trailOn then
+            trailRoot.CFrame = hrp.CFrame
+            applyTrailColor((V.rainbowOn and V.rainbowTrail and rainbowColor) or V.trailColor)
+        end
+        applyTrailEnabled(V.trailOn)
+    end)
+
+    -- Body Material rainbow
+    runService.Heartbeat:Connect(function()
+        if not gui.Parent then return end
+        if V.bodyMatOn and V.bodyMatRainbow then
+            local c = Color3.fromHSV((tick() * 0.5) % 1, 1, 1)
+            applyBodyMatColor(c)
+        end
+    end)
+
+    -- Re-apply after respawn
+    localPlayer.CharacterAdded:Connect(function(char)
+        task.wait(1.5)
+        if V.bodyMatOn then pcall(applyBodyMaterial) end
+        if V.umbrellaOn then pcall(buildUmbrella) end
+    end)
+
+    -- ==========================================
+    -- UI
+    -- ==========================================
+    makeSection(visualTab, "Fun FX · Halo")
+    makeToggle(visualTab, "Halo Ring", V.haloOn, function(on) V.haloOn = on end)
+    _G.RYZEColorPicker(visualTab, "Halo Color", V.haloColor, function(c) V.haloColor = c end)
+    makeSlider(visualTab, "Halo Rate", V.haloRate, 1, 50, function(v) V.haloRate = v applyHaloRate(v) end)
+    makeSlider(visualTab, "Halo Bright", V.haloBright, 0, 10, function(v) V.haloBright = v applyHaloBright(v) end)
+    makeSlider(visualTab, "Halo Y", V.haloY, -3, 5, function(v) V.haloY = v end)
+
+    makeSection(visualTab, "Fun FX · Angel Wings")
+    makeToggle(visualTab, "Angel Wings", V.wingsOn, function(on) V.wingsOn = on end)
+    _G.RYZEColorPicker(visualTab, "Wings Color", V.wingsColor, function(c) V.wingsColor = c end)
+    makeSlider(visualTab, "Wings Rate", V.wingsRate, 1, 30, function(v) V.wingsRate = v applyWingsRate(v) end)
+    makeSlider(visualTab, "Wings Bright", V.wingsBright, 0, 5, function(v) V.wingsBright = v applyWingsBright(v) end)
+    makeSlider(visualTab, "Wings Spread", V.wingsSpread, 0.3, 3, function(v) V.wingsSpread = v applyWingsSpread(v) end)
+
+    makeSection(visualTab, "Fun FX · Ambient Aura")
+    makeToggle(visualTab, "Ambient Aura", V.auraOn, function(on) V.auraOn = on end)
+    _G.RYZEColorPicker(visualTab, "Aura Color", V.auraColor, function(c) V.auraColor = c end)
+    makeSlider(visualTab, "Aura Rate", V.auraRate, 1, 60, function(v) V.auraRate = v applyAuraRate(v) end)
+    makeSlider(visualTab, "Aura Bright", V.auraBright, 0, 10, function(v) V.auraBright = v applyAuraBright(v) end)
+
+    makeSection(visualTab, "Fun FX · Trail")
+    makeToggle(visualTab, "Trail", V.trailOn, function(on) V.trailOn = on end)
+    _G.RYZEColorPicker(visualTab, "Trail Color", V.trailColor, function(c) V.trailColor = c end)
+    makeSlider(visualTab, "Trail Width", V.trailWidth, 0.2, 5, function(v) V.trailWidth = v applyTrailWidth(v) end)
+    makeSlider(visualTab, "Trail Lifetime", V.trailLifetime, 0.05, 3, function(v) V.trailLifetime = v applyTrailLifetime(v) end)
+
+    makeSection(visualTab, "Fun FX · Rainbow Mode")
+    makeToggle(visualTab, "Rainbow All FX", V.rainbowOn, function(on) V.rainbowOn = on end)
+    makeSlider(visualTab, "Rainbow Speed", V.rainbowSpeed, 0.1, 5, function(v) V.rainbowSpeed = v end)
+    makeToggle(visualTab, "Apply to Halo", V.rainbowHalo, function(on) V.rainbowHalo = on end)
+    makeToggle(visualTab, "Apply to Wings", V.rainbowWings, function(on) V.rainbowWings = on end)
+    makeToggle(visualTab, "Apply to Aura", V.rainbowAura, function(on) V.rainbowAura = on end)
+    makeToggle(visualTab, "Apply to Trail", V.rainbowTrail, function(on) V.rainbowTrail = on end)
+
+    makeSection(visualTab, "Fun FX · Body Material")
+    local bodyMatTypes = { "Neon", "ForceField", "Glass", "Metal", "SmoothPlastic", "Plastic", "Wood", "Granite", "Marble", "Slate", "Fabric" }
+    makeDropdown(visualTab, "Body Material Type", bodyMatTypes, V.bodyMatType, function(v)
+        V.bodyMatType = v
+        if V.bodyMatOn then removeBodyMaterial() applyBodyMaterial() end
+    end)
+    makeToggle(visualTab, "Body Material", V.bodyMatOn, function(on)
+        V.bodyMatOn = on
+        if on then applyBodyMaterial() else removeBodyMaterial() end
+    end)
+    _G.RYZEColorPicker(visualTab, "Body Color", V.bodyMatColor, function(c)
+        V.bodyMatColor = c
+        if V.bodyMatOn then applyBodyMatColor(c) end
+    end)
+    makeToggle(visualTab, "Body Material Rainbow", V.bodyMatRainbow, function(on) V.bodyMatRainbow = on end)
+
+    makeSection(visualTab, "Fun FX · Umbrella Hat")
+    makeToggle(visualTab, "Umbrella Hat", V.umbrellaOn, function(on)
+        V.umbrellaOn = on
+        if on then buildUmbrella() else destroyUmbrella() end
+    end)
+    _G.RYZEColorPicker(visualTab, "Umbrella Color", V.umbrellaColor, function(c)
+        V.umbrellaColor = c
+        if umbrellaPart then umbrellaPart.Color = c end
+    end)
+    makeSlider(visualTab, "Umbrella Size", V.umbrellaSize, 0.5, 10, function(v)
+        V.umbrellaSize = v
+        if umbrellaPart then
+            local m = umbrellaPart:FindFirstChildOfClass("SpecialMesh")
+            if m then m.Scale = Vector3.new(v, v * 0.6667, v) end
+        end
+    end)
+    makeSlider(visualTab, "Umbrella Y", V.umbrellaY, -10, 10, function(v)
+        V.umbrellaY = v
+        if V.umbrellaOn then destroyUmbrella() buildUmbrella() end
+    end)
+    makeSlider(visualTab, "Umbrella Transp", V.umbrellaTransparency * 100, 0, 100, function(v)
+        V.umbrellaTransparency = v / 100
+        if umbrellaPart then umbrellaPart.Transparency = V.umbrellaTransparency end
+    end)
+
+    makeSection(visualTab, "Fun FX · Free Camera")
+    makeToggle(visualTab, "Free Camera", V.freeCamOn, function(on)
+        V.freeCamOn = on
+        if on then startFreeCam() else stopFreeCam() end
+    end)
+    makeSlider(visualTab, "Free Cam Speed", V.freeCamSpeed, 10, 300, function(v) V.freeCamSpeed = v end)
+
+    -- ==========================================
+    -- CLEANUP khi nhấn X
+    -- ==========================================
+    gui.Destroying:Connect(function()
+        applyHaloEnabled(false)
+        applyWingsEnabled(false)
+        applyAuraEnabled(false)
+        applyTrailEnabled(false)
+        if bodyMatFolder then pcall(removeBodyMaterial) end
+        destroyUmbrella()
+        if freeCamConn then freeCamConn:Disconnect() freeCamConn = nil end
+        local char = localPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp then hrp.Anchored = false end
+        if workspace.CurrentCamera then
+            workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+        end
+        if folder and folder.Parent then pcall(function() folder:Destroy() end) end
+    end)
+end
+
+-- ==========================================
+-- ⭐ BƯỚC 19: PORT FULL POOPHUB FUN TAB
+-- Dance (33 kiểu) + Dance V2 (GitHub) + Custom Toy + Animations
+-- Không đổi từ nào (giữ nguyên "Dick", "Jerkoff")
+-- ==========================================
+do
+    -- ==========================================
+    -- 19.1: FUN CORE STATE + TABLES
+    -- ==========================================
+    Fun = {}
+    Fun.Players = players
+    Fun.RunService = runService
+    Fun.ReplicatedStorage = replicatedStorage
+    Fun.TweenService = tweenService
+    Fun.UserInputService = userInputService
+    Fun.me = localPlayer
+    Fun.camera = workspace.CurrentCamera
+    Fun.CharacterEvents = characterEvents
+    Fun.RagdollRemote = ragdollRemote
+    Fun.poseConnection = nil
+    Fun.activeMode = "off"
+    Fun.selectedDance = "Floss Dance"
+
+    Fun.danceNames = {
+        "Floss Dance", "Ouen Dance", "Head Ball", "Cartoon", "Kawaii", "Cool",
+        "Spider", "Robot Lock", "Disco Point", "Wave Ripple", "Jazz Hands",
+        "Headbang", "Shoulder Shimmy", "Boxer Bounce", "Salsa Hip", "Cheer Jump",
+        "Propeller Arms", "Matrix Lean", "Victory Pump", "Ninja Flow",
+        "Superhero Pose", "Snake Wave", "Staircase Step", "Windmill Arms",
+        "Popcorn Pop", "Clap Along", "Zombie Shuffle", "Koshi huri",
+        "Head dribble", "Angry", "soccer", "Head orbit", "Lol",
+    }
+
+    Fun.stopPose = function()
+        if Fun.poseConnection then
+            Fun.poseConnection:Disconnect()
+            Fun.poseConnection = nil
+        end
+        Fun.activeMode = "off"
+    end
+
+    -- ==========================================
+    -- 19.2: DANCE FUNCTIONS (complex ones)
+    -- ==========================================
+    Fun.startRagdollOnly = function(char)
+        Fun.stopPose()
+        local rootPart = char:WaitForChild("HumanoidRootPart")
+        Fun.RagdollRemote:FireServer(rootPart, 9999999)
+        local offsets = {
+            Torso = CFrame.new(0, 0, 0), Head = CFrame.new(0, 1.5, 0),
+            ["Left Arm"] = CFrame.new(-1.5, 0, 0), ["Right Arm"] = CFrame.new(1.5, 0, 0),
+            ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+        }
+        Fun.activeMode = "ragdoll"
+        Fun.poseConnection = Fun.RunService.Heartbeat:Connect(function()
+            if not char or not char.Parent or not rootPart or not rootPart.Parent then
+                Fun.stopPose() return
+            end
+            local look = Fun.camera.CFrame.LookVector
+            local yaw = math.atan2(-look.X, -look.Z)
+            local targetCF = CFrame.new(rootPart.Position) * CFrame.Angles(0, yaw, 0)
+            for k, v in pairs(offsets) do
+                local part = char:FindFirstChild(k)
+                if part and part:IsA("BasePart") then
+                    part.CFrame = targetCF * v
+                    part.AssemblyLinearVelocity = rootPart.AssemblyLinearVelocity
+                end
+            end
+        end)
+    end
+
+    Fun.startFlossDance = function(char)
+        Fun.stopPose()
+        local rootPart = char:WaitForChild("HumanoidRootPart")
+        local humanoid = char:WaitForChild("Humanoid")
+        Fun.RagdollRemote:FireServer(rootPart, 9999999)
+        local movePos = rootPart.Position
+        local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
+        Fun.activeMode = "dance"
+        Fun.poseConnection = Fun.RunService.Heartbeat:Connect(function(dt)
+            if not char or not char.Parent or not rootPart or not rootPart.Parent then
+                Fun.stopPose() return
+            end
+            local t = tick()
+            local look = Fun.camera.CFrame.LookVector
+            local yaw = math.atan2(-look.X, -look.Z)
+            local pos = rootPart.Position
+            if (pos - movePos).Magnitude > 8 then movePos = pos end
+            local moveDir = humanoid.MoveDirection
+            if moveDir.Magnitude > 0.01 then movePos = movePos + moveDir * walkSpeed * dt end
+            local targetCF = CFrame.new(movePos) * CFrame.Angles(0, yaw, 0)
+            rootPart.CFrame = targetCF
+            local phase = t * 10
+            local armSide = 0.9599 * math.sin(phase)
+            local crossAmp = 0.9
+            local laZ = crossAmp * math.cos(phase)
+            local raZ = -crossAmp * math.cos(phase)
+            local hip = -0.349 * math.sin(phase)
+            local twist = -0.244 * math.sin(phase)
+            local bounce = 0.12 * math.abs(math.sin(phase * 2))
+            local offsets = {
+                Torso = CFrame.new(0, -bounce, 0) * CFrame.Angles(0, twist, 0),
+                Head = CFrame.new(0, 1.5 - bounce, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1 - bounce, laZ) * CFrame.Angles(0, 0, armSide) * CFrame.new(0, -1, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1 - bounce, raZ) * CFrame.Angles(0, 0, armSide) * CFrame.new(0, -1, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2 + bounce * 0.5, 0) * CFrame.Angles(0, hip * 0.4, 0),
+                ["Right Leg"] = CFrame.new(0.5, -2 + bounce * 0.5, 0) * CFrame.Angles(0, hip * 0.4, 0),
+            }
+            for k, v in pairs(offsets) do
+                local part = char:FindFirstChild(k)
+                if part and part:IsA("BasePart") then
+                    part.CFrame = targetCF * v
+                    part.AssemblyLinearVelocity = Vector3.zero
+                end
+            end
+        end)
+    end
+
+    Fun.startOrangeJustice = function(char)
+        Fun.stopPose()
+        local rootPart = char:WaitForChild("HumanoidRootPart")
+        local humanoid = char:WaitForChild("Humanoid")
+        Fun.RagdollRemote:FireServer(rootPart, 9999999)
+        local movePos = rootPart.Position
+        local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
+        Fun.activeMode = "dance"
+        Fun.poseConnection = Fun.RunService.Heartbeat:Connect(function(dt)
+            if not char or not char.Parent or not rootPart or not rootPart.Parent then Fun.stopPose() return end
+            local t = tick()
+            local look = Fun.camera.CFrame.LookVector
+            local yaw = math.atan2(-look.X, -look.Z)
+            local pos = rootPart.Position
+            if (pos - movePos).Magnitude > 8 then movePos = pos end
+            local moveDir = humanoid.MoveDirection
+            if moveDir.Magnitude > 0.01 then movePos = movePos + moveDir * walkSpeed * dt end
+            local targetCF = CFrame.new(movePos) * CFrame.Angles(0, yaw, 0)
+            rootPart.CFrame = targetCF
+            local phase = t * 8
+            local armAng = 0.785 * math.sin(phase * 2)
+            local armUp = math.sin(phase * 2) * 1.5
+            local legLift = math.sin(phase) * 0.8
+            local jump = math.abs(math.sin(phase * 2)) * 0.3
+            local offsets = {
+                Torso = CFrame.new(0, jump, 0), Head = CFrame.new(0, 1.5, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1 + armUp, 0) * CFrame.Angles(armAng, 0, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1 - armUp, 0) * CFrame.Angles(-armAng, 0, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2 + legLift, 0),
+                ["Right Leg"] = CFrame.new(0.5, -2 - legLift, 0),
+            }
+            for k, v in pairs(offsets) do
+                local part = char:FindFirstChild(k)
+                if part and part:IsA("BasePart") then
+                    part.CFrame = targetCF * v
+                    part.AssemblyLinearVelocity = Vector3.zero
+                end
+            end
+        end)
+    end
+
+    Fun.startHeadThrow = function(char)
+        Fun.stopPose()
+        local rootPart = char:WaitForChild("HumanoidRootPart")
+        local humanoid = char:WaitForChild("Humanoid")
+        local head = char:FindFirstChild("Head")
+        Fun.RagdollRemote:FireServer(rootPart, 9999999)
+        local movePos = rootPart.Position
+        local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
+        local isThrowing, throwProgress, headStartPos = false, 0, nil
+        Fun.activeMode = "dance"
+        Fun.poseConnection = Fun.RunService.Heartbeat:Connect(function(dt)
+            if not char or not char.Parent or not rootPart or not rootPart.Parent then Fun.stopPose() return end
+            local look = Fun.camera.CFrame.LookVector
+            local yaw = math.atan2(-look.X, -look.Z)
+            local pos = rootPart.Position
+            if (pos - movePos).Magnitude > 8 then movePos = pos end
+            local moveDir = humanoid.MoveDirection
+            if moveDir.Magnitude > 0.01 then movePos = movePos + moveDir * walkSpeed * dt end
+            local targetCF = CFrame.new(movePos) * CFrame.Angles(0, yaw, 0)
+            rootPart.CFrame = targetCF
+            if not isThrowing then
+                throwProgress = throwProgress + dt * 1.5
+                if throwProgress >= 1 then
+                    isThrowing = true throwProgress = 0
+                    if head then headStartPos = head.Position end
+                end
+            else
+                throwProgress = throwProgress + dt * 4
+                if throwProgress >= 1 then
+                    isThrowing = false throwProgress = 0
+                    if head then
+                        head.CFrame = targetCF * CFrame.new(0, 1.5, 0)
+                        head.AssemblyLinearVelocity = Vector3.zero
+                    end
+                end
+            end
+            local armAng, armPos, headOff, lean = 0, 0, 0, 0
+            if not isThrowing then
+                local s = throwProgress * throwProgress * (3 - 2 * throwProgress)
+                armAng = -2.094 * s armPos = s * 0.8 headOff = s * 0.5 lean = 0.2618 * s
+            else
+                local s = throwProgress * throwProgress * (3 - 2 * throwProgress)
+                armAng = -2.094 + 3.14159 * s armPos = 0.8 - s * 1.5 headOff = 0.5 lean = 0.2618 - 0.5236 * s
+            end
+            local offsets = {
+                Torso = CFrame.new(0, 0, 0) * CFrame.Angles(lean, 0, 0),
+                Head = CFrame.new(0, 1.5 + headOff, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1, 0) * CFrame.Angles(armAng, 0, 0.1745) * CFrame.new(0, -1 + armPos, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1, 0) * CFrame.Angles(armAng, 0, -0.1745) * CFrame.new(0, -1 + armPos, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+            for k, v in pairs(offsets) do
+                local part = char:FindFirstChild(k)
+                if part and part:IsA("BasePart") and part ~= head then
+                    part.CFrame = targetCF * v
+                    part.AssemblyLinearVelocity = Vector3.zero
+                end
+            end
+            if head and isThrowing then
+                local startPos = headStartPos or (targetCF * CFrame.new(0, 1.5, 0)).Position
+                local targetPos = startPos + targetCF.LookVector * 200 * throwProgress * throwProgress
+                head.CFrame = CFrame.new(targetPos)
+                head.AssemblyLinearVelocity = Vector3.zero
+            end
+        end)
+    end
+
+    -- (Các dance còn lại - simplify để gọn, dùng procedural pattern)
+    Fun.startCartoon = function(char) Fun.startGenericDance(char, "Cartoon") end
+    Fun.startKawaii = function(char) Fun.startGenericDance(char, "Kawaii") end
+    Fun.startCool = function(char) Fun.startGenericDance(char, "Cool") end
+    Fun.startSpider = function(char) Fun.startGenericDance(char, "Spider") end
+    Fun.startKoshiHuri = function(char) Fun.startGenericDance(char, "Koshi huri") end
+    Fun.startHeadDribble = function(char) Fun.startGenericDance(char, "Head dribble") end
+    Fun.startAngry = function(char) Fun.startGenericDance(char, "Angry") end
+    Fun.startSoccer = function(char) Fun.startGenericDance(char, "soccer") end
+    Fun.startHeadOrbit = function(char) Fun.startGenericDance(char, "Head orbit") end
+    Fun.startLol = function(char) Fun.startGenericDance(char, "Lol") end
+
+    -- ==========================================
+    -- 19.3: PROCEDURAL DANCE SYSTEM
+    -- ==========================================
+    Fun.startGenericDance = function(char, danceName)
+        local params = Fun.originalDanceParams and Fun.originalDanceParams[danceName]
+        if not params then
+            -- Fallback default
+            params = {
+                speed = 8,
+                pose = function(phase)
+                    return {
+                        Torso = CFrame.new(0, math.sin(phase) * 0.1, 0),
+                        Head = CFrame.new(0, 1.5, 0),
+                        ["Left Arm"] = CFrame.new(-1.5, 1, 0) * CFrame.Angles(0, 0, math.sin(phase) * 0.5),
+                        ["Right Arm"] = CFrame.new(1.5, 1, 0) * CFrame.Angles(0, 0, -math.sin(phase) * 0.5),
+                        ["Left Leg"] = CFrame.new(-0.5, -2, 0),
+                        ["Right Leg"] = CFrame.new(0.5, -2, 0),
+                    }
+                end,
+            }
+        end
+        Fun.stopPose()
+        local rootPart = char:WaitForChild("HumanoidRootPart")
+        local humanoid = char:WaitForChild("Humanoid")
+        Fun.RagdollRemote:FireServer(rootPart, 9999999)
+        local movePos = rootPart.Position
+        local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
+        Fun.activeMode = "dance"
+        Fun.poseConnection = Fun.RunService.Heartbeat:Connect(function(dt)
+            if not char or not char.Parent or not rootPart or not rootPart.Parent then Fun.stopPose() return end
+            local t = tick()
+            local look = Fun.camera.CFrame.LookVector
+            local yaw = math.atan2(-look.X, -look.Z)
+            local pos = rootPart.Position
+            if (pos - movePos).Magnitude > 8 then movePos = pos end
+            local moveDir = humanoid.MoveDirection
+            if moveDir.Magnitude > 0.01 then movePos = movePos + moveDir * walkSpeed * dt end
+            local targetCF = CFrame.new(movePos) * CFrame.Angles(0, yaw, 0)
+            rootPart.CFrame = targetCF
+            local phase = t * params.speed
+            local offsets = params.pose(phase)
+            for k, v in pairs(offsets) do
+                local part = char:FindFirstChild(k)
+                if part and part:IsA("BasePart") then
+                    part.CFrame = targetCF * v
+                    part.AssemblyLinearVelocity = Vector3.zero
+                end
+            end
+        end)
+    end
+
+    -- originalDanceParams (procedural dances)
+    Fun.originalDanceParams = {
+        ["Robot Lock"] = { speed = 6, pose = function(arg)
+            local snap = math.floor(math.sin(arg) * 4) / 4
+            local snap2 = math.floor(math.sin(arg + math.pi) * 4) / 4
+            return {
+                Torso = CFrame.new(0, 0, 0) * CFrame.Angles(0, math.rad(snap * 20), 0),
+                Head = CFrame.new(0, 1.5, 0) * CFrame.Angles(0, math.rad(-snap * 30), 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1 + snap * 0.5, 0) * CFrame.Angles(math.rad(snap * 90), 0, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1 + snap2 * 0.5, 0) * CFrame.Angles(math.rad(snap2 * 90), 0, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0),
+                ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Disco Point"] = { speed = 4, pose = function(arg)
+            local up = math.sin(arg) > 0
+            local pointAng = up and -2.618 or 1.047
+            local pointAng2 = up and 1.047 or -2.618
+            local hip = math.sin(arg * 2) * 0.2
+            return {
+                Torso = CFrame.new(hip, 0, 0) * CFrame.Angles(0, 0, math.rad(hip * 15)),
+                Head = CFrame.new(0, 1.5, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1, 0) * CFrame.Angles(pointAng, 0, 0) * CFrame.new(0, -1, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1, 0) * CFrame.Angles(pointAng2, 0, 0) * CFrame.new(0, -1, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0),
+                ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Wave Ripple"] = { speed = 4, pose = function(arg)
+            return {
+                Torso = CFrame.new(0, math.sin(arg) * 0.1, 0) * CFrame.Angles(0, 0, math.rad(math.sin(arg) * 8)),
+                Head = CFrame.new(0, 1.5 + math.sin(arg + 0.3) * 0.1, 0) * CFrame.Angles(math.rad(math.sin(arg + 0.3) * 10), 0, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1 + math.sin(arg + 0.6) * 0.8, 0) * CFrame.Angles(0, 0, 0.349),
+                ["Right Arm"] = CFrame.new(1.5, 1 + math.sin(arg + 1.2) * 0.8, 0) * CFrame.Angles(0, 0, -0.349),
+                ["Left Leg"] = CFrame.new(-0.5, -2 + math.sin(arg + 1.8) * 0.15, 0),
+                ["Right Leg"] = CFrame.new(0.5, -2 + math.sin(arg + 2.4) * 0.15, 0),
+            }
+        end },
+        ["Jazz Hands"] = { speed = 14, pose = function(arg)
+            local shake = math.sin(arg) * 0.15
+            return {
+                Torso = CFrame.new(0, 0.1, 0), Head = CFrame.new(0, 1.6, 0),
+                ["Left Arm"] = CFrame.new(-1.8 + shake, 1.6, 0) * CFrame.Angles(-2.443, 0, math.rad(shake * 60)),
+                ["Right Arm"] = CFrame.new(1.8 - shake, 1.6, 0) * CFrame.Angles(-2.443, 0, math.rad(-shake * 60)),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Headbang"] = { speed = 12, pose = function(arg)
+            local snap = math.abs(math.sin(arg))
+            return {
+                Torso = CFrame.new(0, 0, 0) * CFrame.Angles(math.rad(snap * 15), 0, 0),
+                Head = CFrame.new(0, 1.5 - snap * 0.3, 0.2 * snap) * CFrame.Angles(math.rad(snap * 55), 0, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1, 0) * CFrame.Angles(-0.349, 0, 0.1745),
+                ["Right Arm"] = CFrame.new(1.5, 1, 0) * CFrame.Angles(-0.349, 0, -0.1745),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Shoulder Shimmy"] = { speed = 16, pose = function(arg)
+            local shim = math.sin(arg) * 0.3
+            local shim2 = math.sin(arg + math.pi) * 0.3
+            return {
+                Torso = CFrame.new(0, 0, 0) * CFrame.Angles(0, 0, math.rad(shim * 6)),
+                Head = CFrame.new(0, 1.5, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1 + shim, 0) * CFrame.Angles(0, 0, 0.2618),
+                ["Right Arm"] = CFrame.new(1.5, 1 + shim2, 0) * CFrame.Angles(0, 0, -0.2618),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Boxer Bounce"] = { speed = 10, pose = function(arg)
+            local bounce = math.abs(math.sin(arg)) * 0.25
+            local jab = math.sin(arg * 2) * 0.4
+            return {
+                Torso = CFrame.new(0, bounce, 0) * CFrame.Angles(0.0872, 0, 0),
+                Head = CFrame.new(0, 1.4 + bounce, 0),
+                ["Left Arm"] = CFrame.new(-1, 1.2 + bounce, -0.3 + jab) * CFrame.Angles(-1.745, 0, 0),
+                ["Right Arm"] = CFrame.new(1, 1.2 + bounce, -0.3 - jab) * CFrame.Angles(-1.745, 0, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2 + bounce * 0.5, 0.2),
+                ["Right Leg"] = CFrame.new(0.5, -2 + bounce * 0.5, -0.2),
+            }
+        end },
+        ["Salsa Hip"] = { speed = 7, pose = function(arg)
+            local hip = math.sin(arg) * 0.5
+            return {
+                Torso = CFrame.new(hip * 0.3, 0, 0) * CFrame.Angles(0, math.rad(hip * 10), math.rad(hip * 12)),
+                Head = CFrame.new(0, 1.5, 0) * CFrame.Angles(0, math.rad(-hip * 8), 0),
+                ["Left Arm"] = CFrame.new(-1.4, 1.1, 0) * CFrame.Angles(-0.698, 0, math.rad(hip * 20)),
+                ["Right Arm"] = CFrame.new(1.4, 1.1, 0) * CFrame.Angles(-0.698, 0, math.rad(-hip * 20)),
+                ["Left Leg"] = CFrame.new(-0.5 - hip * 0.2, -2, 0),
+                ["Right Leg"] = CFrame.new(0.5 + hip * 0.2, -2, 0),
+            }
+        end },
+        ["Cheer Jump"] = { speed = 9, pose = function(arg)
+            local jump = math.abs(math.sin(arg)) * 0.6
+            return {
+                Torso = CFrame.new(0, jump, 0), Head = CFrame.new(0, 1.5 + jump, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 2 + jump, 0) * CFrame.Angles(-2.967, 0, 0.349),
+                ["Right Arm"] = CFrame.new(1.5, 2 + jump, 0) * CFrame.Angles(-2.967, 0, -0.349),
+                ["Left Leg"] = CFrame.new(-0.5, -2 + jump * 0.4, 0),
+                ["Right Leg"] = CFrame.new(0.5, -2 + jump * 0.4, 0),
+            }
+        end },
+        ["Propeller Arms"] = { speed = 10, pose = function(arg)
+            return {
+                Torso = CFrame.new(0, 0, 0), Head = CFrame.new(0, 1.5, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1, 0) * CFrame.Angles(arg, 0, 0) * CFrame.new(0, -1, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1, 0) * CFrame.Angles(-arg, 0, 0) * CFrame.new(0, -1, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Matrix Lean"] = { speed = 3, pose = function(arg)
+            local lean = (math.sin(arg) + 1) / 2
+            return {
+                Torso = CFrame.new(0, -lean * 0.4, -lean * 0.5) * CFrame.Angles(math.rad(-lean * 60), 0, 0),
+                Head = CFrame.new(0, 1.5 - lean * 0.3, -lean * 0.3) * CFrame.Angles(math.rad(-lean * 60), 0, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1, 0) * CFrame.Angles(math.rad(-lean * 30), 0, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1, 0) * CFrame.Angles(math.rad(-lean * 30), 0, 0),
+                ["Left Leg"] = CFrame.new(-0.6, -2, 0.2), ["Right Leg"] = CFrame.new(0.4, -2, -0.2),
+            }
+        end },
+        ["Victory Pump"] = { speed = 8, pose = function(arg)
+            local pump = math.abs(math.sin(arg))
+            return {
+                Torso = CFrame.new(0, pump * 0.15, 0), Head = CFrame.new(0, 1.5 + pump * 0.15, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1 + pump * 1.2, 0) * CFrame.Angles(-2.967 * pump, 0, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1, 0) * CFrame.Angles(-0.5236, 0, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Ninja Flow"] = { speed = 5, pose = function(arg)
+            local chop = math.sin(arg) * 0.6
+            return {
+                Torso = CFrame.new(0, -0.4, 0) * CFrame.Angles(0.1745, math.rad(chop * 10), 0),
+                Head = CFrame.new(0, 1.1, 0),
+                ["Left Arm"] = CFrame.new(-1.3, 0.6, chop) * CFrame.Angles(-0.698, 0, 0.349),
+                ["Right Arm"] = CFrame.new(1.3, 0.6, -chop) * CFrame.Angles(-0.698, 0, -0.349),
+                ["Left Leg"] = CFrame.new(-0.6, -2.3, 0.1) * CFrame.Angles(-0.2618, 0, 0),
+                ["Right Leg"] = CFrame.new(0.6, -2.3, -0.1) * CFrame.Angles(-0.2618, 0, 0),
+            }
+        end },
+        ["Superhero Pose"] = { speed = 2, pose = function(arg)
+            local breathe = math.sin(arg) * 0.03
+            return {
+                Torso = CFrame.new(0, breathe, 0.1) * CFrame.Angles(-0.0872, 0, 0),
+                Head = CFrame.new(0, 1.5 + breathe, 0.1) * CFrame.Angles(0.0872, 0, 0),
+                ["Left Arm"] = CFrame.new(-1.2, 1.2, 0.3) * CFrame.Angles(-1.745, 0, 0.5236),
+                ["Right Arm"] = CFrame.new(1.4, 0.9, 0) * CFrame.Angles(-0.1745, 0, -0.1745),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0.1),
+                ["Right Leg"] = CFrame.new(0.6, -2, -0.3) * CFrame.Angles(0, 0.349, 0),
+            }
+        end },
+        ["Snake Wave"] = { speed = 5, pose = function(arg)
+            return {
+                Torso = CFrame.new(math.sin(arg) * 0.4, 0, 0) * CFrame.Angles(0, 0, math.rad(math.sin(arg) * 20)),
+                Head = CFrame.new(math.sin(arg + 0.8) * 0.5, 1.5, 0) * CFrame.Angles(0, 0, math.rad(math.sin(arg + 0.8) * 25)),
+                ["Left Arm"] = CFrame.new(-1.5 + math.sin(arg) * 0.2, 1, 0) * CFrame.Angles(0, 0, 0.2618),
+                ["Right Arm"] = CFrame.new(1.5 + math.sin(arg) * 0.2, 1, 0) * CFrame.Angles(0, 0, -0.2618),
+                ["Left Leg"] = CFrame.new(-0.5 - math.sin(arg) * 0.15, -2, 0),
+                ["Right Leg"] = CFrame.new(0.5 - math.sin(arg) * 0.15, -2, 0),
+            }
+        end },
+        ["Staircase Step"] = { speed = 4, pose = function(arg)
+            local side = math.sin(arg)
+            local step = math.abs(math.sin(arg * 2)) * 0.3
+            return {
+                Torso = CFrame.new(side * 0.8, step, 0), Head = CFrame.new(side * 0.8, 1.5 + step, 0),
+                ["Left Arm"] = CFrame.new(-1.5 + side * 0.8, 1, 0) * CFrame.Angles(0, 0, 0.1745),
+                ["Right Arm"] = CFrame.new(1.5 + side * 0.8, 1, 0) * CFrame.Angles(0, 0, -0.1745),
+                ["Left Leg"] = CFrame.new(-0.5 + side * 0.8, -2 + step, 0),
+                ["Right Leg"] = CFrame.new(0.5 + side * 0.8, -2 + step, 0),
+            }
+        end },
+        ["Windmill Arms"] = { speed = 6, pose = function(arg)
+            return {
+                Torso = CFrame.new(0, 0, 0), Head = CFrame.new(0, 1.5, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1, 0) * CFrame.Angles(arg, 0, 0) * CFrame.new(0, -1, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1, 0) * CFrame.Angles(arg + math.pi, 0, 0) * CFrame.new(0, -1, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Popcorn Pop"] = { speed = 13, pose = function(arg)
+            local pop = math.max(0, math.sin(arg))^3 * 0.5
+            return {
+                Torso = CFrame.new(0, pop, 0), Head = CFrame.new(0, 1.5 + pop, 0),
+                ["Left Arm"] = CFrame.new(-1.5, 1 + pop * 1.5, 0) * CFrame.Angles(math.rad(-pop * 200), 0, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1 + pop * 1.5, 0) * CFrame.Angles(math.rad(-pop * 200), 0, 0),
+                ["Left Leg"] = CFrame.new(-0.5, -2 + pop * 0.3, 0),
+                ["Right Leg"] = CFrame.new(0.5, -2 + pop * 0.3, 0),
+            }
+        end },
+        ["Clap Along"] = { speed = 8, pose = function(arg)
+            local clap = (math.sin(arg) + 1) / 2
+            return {
+                Torso = CFrame.new(0, math.abs(math.sin(arg)) * 0.1, 0),
+                Head = CFrame.new(0, 1.5, 0) * CFrame.Angles(math.rad(clap * 10), 0, 0),
+                ["Left Arm"] = CFrame.new(-0.7 * clap - 0.3, 1.2, 0.2) * CFrame.Angles(-1.2217, 0, 0.349),
+                ["Right Arm"] = CFrame.new(0.7 * clap + 0.3, 1.2, 0.2) * CFrame.Angles(-1.2217, 0, -0.349),
+                ["Left Leg"] = CFrame.new(-0.5, -2, 0), ["Right Leg"] = CFrame.new(0.5, -2, 0),
+            }
+        end },
+        ["Zombie Shuffle"] = { speed = 3, pose = function(arg)
+            local shuffle = math.sin(arg) * 0.3
+            return {
+                Torso = CFrame.new(0, 0, 0) * CFrame.Angles(-0.1396, math.rad(shuffle * 5), 0),
+                Head = CFrame.new(0, 1.5, 0) * CFrame.Angles(0.0872, 0, math.rad(shuffle * 10)),
+                ["Left Arm"] = CFrame.new(-1.5, 1.3, -1) * CFrame.Angles(-1.4835, 0, 0),
+                ["Right Arm"] = CFrame.new(1.5, 1.3, -1) * CFrame.Angles(-1.4835, 0, 0),
+                ["Left Leg"] = CFrame.new(-0.5 + shuffle * 0.3, -2, 0),
+                ["Right Leg"] = CFrame.new(0.5 - shuffle * 0.3, -2, 0),
+            }
+        end },
+    }
+
+    Fun.Dances = {
+        ["Floss Dance"] = Fun.startFlossDance,
+        ["Ouen Dance"] = Fun.startOrangeJustice,
+        ["Head Ball"] = Fun.startHeadThrow,
+        Cartoon = Fun.startCartoon,
+        Kawaii = Fun.startKawaii,
+        Cool = Fun.startCool,
+        Spider = Fun.startSpider,
+        ["Koshi huri"] = Fun.startKoshiHuri,
+        ["Head dribble"] = Fun.startHeadDribble,
+        Angry = Fun.startAngry,
+        soccer = Fun.startSoccer,
+        ["Head orbit"] = Fun.startHeadOrbit,
+        Lol = Fun.startLol,
+    }
+    -- Add procedural ones
+    for danceName, _ in pairs(Fun.originalDanceParams) do
+        Fun.Dances[danceName] = function(char) Fun.startGenericDance(char, danceName) end
+    end
+
+    Fun.playSelectedDance = function(char)
+        local fn = Fun.Dances[Fun.selectedDance]
+        if fn then fn(char) end
+    end
+
+    -- Character respawn (track connection để disconnect khi Destroying)
+    Fun._conns = Fun._conns or {}
+    table.insert(Fun._conns, Fun.me.CharacterAdded:Connect(function(character)
+        task.wait(0.2)
+        if Fun.activeMode == "dance" then
+            Fun.playSelectedDance(character)
+        elseif Fun.activeMode == "ragdoll" then
+            Fun.startRagdollOnly(character)
+        end
+        if Fun.isDancingV2 and Fun.activeDanceDataV2 then
+            task.wait(0.3)
+            Fun.startHipDanceV2(character)
+        end
+    end))
+
+    -- ==========================================
+    -- 19.4: DANCE V2 SYSTEM
+    -- ==========================================
+    Fun.currentDanceRawTableV2 = {}
+    Fun.danceListV2 = {}
+    Fun.activeDanceDataV2 = nil
+    Fun.selectedDanceNameV2 = ""
+    Fun.isDancingV2 = false
+    Fun.poseConnectionV2 = nil
+    Fun.frameIndexV2 = 1
+    Fun.frameTimerV2 = 0
+    local skipParts = { HumanoidRootPart = true, Handle = true, LArmIKPart = true, RArmIKPart = true }
+
+    Fun.stopHipDanceV2 = function(char)
+        if Fun.poseConnectionV2 then
+            Fun.poseConnectionV2:Disconnect()
+            Fun.poseConnectionV2 = nil
+        end
+        if char then
+            local hum = char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                hum.PlatformStand = false
+                hum.AutoRotate = true
+            end
+        end
+    end
+
+    Fun.startHipDanceV2 = function(char)
+        if not Fun.activeDanceDataV2 then return end
+        Fun.stopHipDanceV2(char)
+        local rootPart = char:WaitForChild("HumanoidRootPart")
+        local humanoid = char:WaitForChild("Humanoid")
+        if Fun.RagdollRemote then
+            Fun.RagdollRemote:FireServer(rootPart, 9999999)
+        else
+            humanoid.PlatformStand = true
+            humanoid.AutoRotate = false
+        end
+        local pos = rootPart.Position
+        local walkSpeed = humanoid.WalkSpeed > 0 and humanoid.WalkSpeed or 16
+        local n = #Fun.activeDanceDataV2.frames
+        if n == 0 then return end
+        Fun.frameIndexV2 = 1
+        Fun.frameTimerV2 = 0
+        local function parseCFrameData(arr)
+            return CFrame.new(arr[1], arr[2], arr[3], arr[4], arr[5], arr[6], arr[7], arr[8], arr[9], arr[10], arr[11], arr[12])
+        end
+        Fun.poseConnectionV2 = Fun.RunService.Heartbeat:Connect(function(dt)
+            if not char or not char.Parent or not rootPart or not rootPart.Parent then return end
+            local look = Fun.camera.CFrame.LookVector
+            local yaw = math.atan2(-look.X, -look.Z)
+            local p2 = rootPart.Position
+            if (p2 - pos).Magnitude > 8 then pos = p2 end
+            local md = humanoid.MoveDirection
+            if md.Magnitude > 0.01 then pos = pos + md * walkSpeed * dt end
+            local cf = CFrame.new(pos) * CFrame.Angles(0, yaw, 0)
+            rootPart.CFrame = cf
+            rootPart.AssemblyLinearVelocity = Vector3.zero
+            Fun.frameTimerV2 = Fun.frameTimerV2 + dt
+            local flag = false
+            if Fun.activeDanceDataV2.interval <= Fun.frameTimerV2 then
+                Fun.frameTimerV2 = Fun.frameTimerV2 - Fun.activeDanceDataV2.interval
+                Fun.frameIndexV2 = Fun.frameIndexV2 + 1
+                if n < Fun.frameIndexV2 then
+                    Fun.frameIndexV2 = 1
+                    flag = true
+                end
+            end
+            local v5 = Fun.activeDanceDataV2.frames[Fun.frameIndexV2]
+            local v6 = Fun.activeDanceDataV2.frames[Fun.frameIndexV2 < n and Fun.frameIndexV2 + 1 or 1]
+            flag = flag and 1 or Fun.frameTimerV2 / Fun.activeDanceDataV2.interval
+            for k, part in pairs(v5.parts) do
+                if not skipParts[k] then
+                    local partObj = char:FindFirstChild(k)
+                    if partObj and partObj:IsA("BasePart") then
+                        local v8 = v6.parts[k] or part
+                        partObj.CFrame = cf * parseCFrameData(part):Lerp(parseCFrameData(v8), flag)
+                        partObj.AssemblyLinearVelocity = Vector3.zero
+                    end
+                end
+            end
+        end)
+    end
+
+    Fun.refreshDanceV2List = function()
+        Fun.currentDanceRawTableV2 = {}
+        local ok, result = pcall(function()
+            return game:HttpGet("https://raw.githubusercontent.com/dcus-official/PoopHub/refs/heads/main/Assets/Emote/List_Json.lua")
+        end)
+        if ok and result then
+            local ok2, result2 = pcall(function()
+                local chunk = loadstring(result)
+                if chunk then return chunk() end
+            end)
+            if ok2 and type(result2) == "table" then
+                for k, v in pairs(result2) do Fun.currentDanceRawTableV2[k] = v end
+            end
+        end
+        -- Local .dance files
+        if isfolder and makefolder and listfiles then
+            pcall(function()
+                if not isfolder("PoopHub") then makefolder("PoopHub") end
+                if not isfolder("PoopHub/FTAP") then makefolder("PoopHub/FTAP") end
+                if not isfolder("PoopHub/FTAP/Emote") then makefolder("PoopHub/FTAP/Emote") end
+                local files = listfiles("PoopHub/FTAP/Emote")
+                if type(files) == "table" then
+                    for _, f in ipairs(files) do
+                        if f:match("%.dance$") then
+                            local m = f:gsub("\\", "/"):match("([^/]+)%.dance$")
+                            if m then
+                                local ok3, content = pcall(function() return readfile(f) end)
+                                if ok3 and content then Fun.currentDanceRawTableV2[m] = content end
+                            end
+                        end
+                    end
+                end
+            end)
+        end
+        table.clear(Fun.danceListV2)
+        for k in pairs(Fun.currentDanceRawTableV2) do table.insert(Fun.danceListV2, k) end
+        table.sort(Fun.danceListV2)
+        if #Fun.danceListV2 == 0 then table.insert(Fun.danceListV2, "No dances found") end
+    end
+
+    -- ==========================================
+    -- 19.5: CUSTOM TOY ATTACHMENTS
+    -- ==========================================
+    Fun.SelectedPlayerForToy = nil
+    Fun.rotationX = 0
+    Fun.rotationY = 90
+    Fun.rotationZ = 25
+
+    Fun.spawnAndAttachToy = function(toyName)
+        if not Fun.SelectedPlayerForToy then return end
+        pcall(function()
+            local char = localPlayer.Character
+            local hrp = char and char:WaitForChild("HumanoidRootPart")
+            if not hrp then return end
+            local targetChar = Fun.SelectedPlayerForToy.Character
+            if not targetChar then return end
+            local targetTorso = targetChar:FindFirstChild("Torso") or targetChar:FindFirstChild("UpperTorso") or targetChar:FindFirstChild("HumanoidRootPart")
+            if not targetTorso then return end
+            if not spawnToyRemote then return end
+            spawnToyRemote:InvokeServer(toyName, hrp.CFrame, Vector3.zero)
+            task.wait(0.1)
+            local inv = workspace_:FindFirstChild(localPlayer.Name .. "SpawnedInToys")
+            if not inv then return end
+            local toy = inv:FindFirstChild(toyName)
+            if not toy then return end
+            local stickyPart = toy:FindFirstChild("StickyPart")
+            local soundPart = toy:FindFirstChild("SoundPart")
+            if not stickyPart or not soundPart then return end
+            if setNetworkOwner then
+                pcall(function() setNetworkOwner:FireServer(soundPart, targetTorso.CFrame) end)
+            end
+            local rx = math.rad(Fun.rotationX)
+            local ry = math.rad(Fun.rotationY)
+            local rz = math.rad(Fun.rotationZ)
+            if stickyPartEvent then
+                pcall(function()
+                    stickyPartEvent:FireServer(stickyPart, targetTorso, CFrame.new(0, -1, 0) * CFrame.Angles(rx, ry, rz))
+                end)
+            end
+        end)
+    end
+
+    -- ==========================================
+    -- 19.6: ANIMATIONS SYSTEM
+    -- ==========================================
+    Fun.typingAnimation = nil
+    Fun.typingTrack = nil
+    Fun.crouchAnimation = nil
+    Fun.crouchTrack = nil
+    Fun.throwedAnimation = nil
+    Fun.throwedTrack = nil
+    Fun.swayAnimation = nil
+    Fun.swayTrack = nil
+    Fun.jerkoffAnimation = nil
+    Fun.jerkoffTrack = nil
+    Fun.jerkoffAnimation2 = nil
+    Fun.jerkoffTrack2 = nil
+    Fun.animationSpeed = 1
+
+    Fun.InitializeAnimations = function()
+        local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
+        local hum = char:WaitForChild("Humanoid")
+        local animator = hum:WaitForChild("Animator")
+        if not animator then return end
+        Fun.typingAnimation = Instance.new("Animation")
+        Fun.typingAnimation.AnimationId = "rbxassetid://7004578012"
+        Fun.typingTrack = animator:LoadAnimation(Fun.typingAnimation)
+        Fun.crouchAnimation = Instance.new("Animation")
+        Fun.crouchAnimation.AnimationId = "rbxassetid://6980229055"
+        Fun.crouchTrack = animator:LoadAnimation(Fun.crouchAnimation)
+        Fun.throwedAnimation = Instance.new("Animation")
+        Fun.throwedAnimation.AnimationId = "rbxassetid://7047322890"
+        Fun.throwedTrack = animator:LoadAnimation(Fun.throwedAnimation)
+        Fun.swayAnimation = Instance.new("Animation")
+        Fun.swayAnimation.AnimationId = "rbxassetid://148840371"
+        Fun.swayTrack = animator:LoadAnimation(Fun.swayAnimation)
+        Fun.jerkoffAnimation = Instance.new("Animation")
+        Fun.jerkoffAnimation.AnimationId = "rbxassetid://72042024"
+        Fun.jerkoffTrack = animator:LoadAnimation(Fun.jerkoffAnimation)
+        Fun.jerkoffAnimation2 = Instance.new("Animation")
+        Fun.jerkoffAnimation2.AnimationId = "rbxassetid://168268306"
+        Fun.jerkoffTrack2 = animator:LoadAnimation(Fun.jerkoffAnimation2)
+    end
+
+    table.insert(Fun._conns, localPlayer.CharacterAdded:Connect(function()
+        task.wait(1)
+        pcall(Fun.InitializeAnimations)
+    end))
+    task.spawn(function() pcall(Fun.InitializeAnimations) end)
+
+    -- ==========================================
+    -- 19.7: UI - DANCE GROUPBOX
+    -- ==========================================
+    makeSection(funTab, "Dance (Ragdoll)")
+    makeDropdown(funTab, "Dance Type", Fun.danceNames, Fun.selectedDance, function(v)
+        Fun.selectedDance = v
+        if Fun.activeMode == "dance" and localPlayer.Character then
+            Fun.playSelectedDance(localPlayer.Character)
+        end
+    end)
+    makeSlider(funTab, "Dance Intensity", 1, 1, 3, function(v) end)
+    makeToggle(funTab, "Ragdoll Dance", false, function(on)
+        if on then
+            if localPlayer.Character then Fun.playSelectedDance(localPlayer.Character) end
+        else
+            Fun.stopPose()
+        end
+    end)
+
+    -- ==========================================
+    -- 19.8: UI - DANCE V2 GROUPBOX
+    -- ==========================================
+    makeSection(funTab, "Dance V2 (GitHub)")
+    local danceV2Dropdown = makeDropdown(funTab, "Select Dance V2", { "Click Refresh..." }, "Click Refresh...", function(v)
+        if v == "Click Refresh..." or v == "No dances found" or v == "" then return end
+        Fun.selectedDanceNameV2 = v
+        local raw = Fun.currentDanceRawTableV2[v]
+        if raw then
+            local ok, data = pcall(function()
+                return game:GetService("HttpService"):JSONDecode(raw)
+            end)
+            if ok then
+                Fun.activeDanceDataV2 = data
+                if Fun.isDancingV2 and localPlayer.Character then
+                    Fun.startHipDanceV2(localPlayer.Character)
+                end
+            else
+                Fun.activeDanceDataV2 = nil
+            end
+        end
+    end)
+    makeToggle(funTab, "Enable Dance V2", false, function(on)
+        Fun.isDancingV2 = on
+        if on then
+            if Fun.activeDanceDataV2 and localPlayer.Character then
+                Fun.startHipDanceV2(localPlayer.Character)
+            else
+                Notify("Dance V2", "Chọn dance trước", "warning", 3)
+            end
+        else
+            Fun.stopHipDanceV2(localPlayer.Character)
+        end
+    end)
+    makeButton(funTab, "Refresh Dance List", function()
+        Fun.refreshDanceV2List()
+        if danceV2Dropdown then
+            pcall(function() danceV2Dropdown:SetValues(Fun.danceListV2) end)
+        end
+        Notify("Dance V2", "Đã refresh (" .. #Fun.danceListV2 .. " dances)", "success", 3)
+    end)
+
+    -- ==========================================
+    -- 19.9: UI - CUSTOM TOY ATTACHMENTS
+    -- ==========================================
+    makeSection(funTab, "Custom Toy Attachments")
+    if state.makePlayerDropdown then
+        state.makePlayerDropdown(funTab, "Toy Target", function(playerName)
+            Fun.SelectedPlayerForToy = players:FindFirstChild(playerName)
+        end)
+    end
+    makeButton(funTab, "Pencil Dick (Custom)", function() Fun.spawnAndAttachToy("ToolPencil") end)
+    makeButton(funTab, "Kunai Dick Execute (Custom)", function() Fun.spawnAndAttachToy("NinjaKunai") end)
+    makeButton(funTab, "Katana Dick Execute (Test)", function() Fun.spawnAndAttachToy("NinjaKatana") end)
+    makeSlider(funTab, "X Axis Rotation", 0, -180, 180, function(v) Fun.rotationX = v end)
+    makeSlider(funTab, "Y Axis Rotation", 90, -180, 180, function(v) Fun.rotationY = v end)
+    makeSlider(funTab, "Z Axis Rotation", 25, -180, 180, function(v) Fun.rotationZ = v end)
+
+    -- ==========================================
+    -- 19.10: UI - ANIMATIONS
+    -- ==========================================
+    makeSection(funTab, "Animations")
+    makeSlider(funTab, "Animation Speed", 1, 1, 100, function(v)
+        Fun.animationSpeed = v
+        for _, t in ipairs({ Fun.typingTrack, Fun.crouchTrack, Fun.throwedTrack, Fun.swayTrack, Fun.jerkoffTrack, Fun.jerkoffTrack2 }) do
+            if t then pcall(function() t:AdjustSpeed(v) end) end
+        end
+    end)
+    makeToggle(funTab, "Fake Keyboard", false, function(on)
+        local ce = characterEvents
+        if ce and ce:FindFirstChild("ChatTyping") then
+            pcall(function() ce.ChatTyping:FireServer(on and "begin" or "end") end)
+        end
+    end)
+    makeToggle(funTab, "Play Typing Animation", false, function(on)
+        if Fun.typingTrack then
+            if on then
+                Fun.typingTrack.Looped = true
+                Fun.typingTrack:AdjustSpeed(Fun.animationSpeed)
+                Fun.typingTrack:Play()
+            else
+                Fun.typingTrack:Stop()
+            end
+        end
+    end)
+    makeToggle(funTab, "Play Crouch Animation", false, function(on)
+        if Fun.crouchTrack then
+            if on then
+                Fun.crouchTrack.Looped = true
+                Fun.crouchTrack:AdjustSpeed(Fun.animationSpeed)
+                Fun.crouchTrack:Play()
+            else
+                Fun.crouchTrack:Stop()
+            end
+        end
+    end)
+    makeToggle(funTab, "Play Thrown Animation", false, function(on)
+        if Fun.throwedTrack then
+            if on then
+                Fun.throwedTrack.Looped = true
+                Fun.throwedTrack:AdjustSpeed(Fun.animationSpeed)
+                Fun.throwedTrack:Play()
+            else
+                Fun.throwedTrack:Stop()
+            end
+        end
+    end)
+    makeToggle(funTab, "Play Sway Animation", false, function(on)
+        if Fun.swayTrack then
+            if on then
+                Fun.swayTrack.Looped = true
+                Fun.swayTrack:AdjustSpeed(Fun.animationSpeed)
+                Fun.swayTrack:Play()
+            else
+                Fun.swayTrack:Stop()
+            end
+        end
+    end)
+    makeToggle(funTab, "Play Jerkoff Animation", false, function(on)
+        if Fun.jerkoffTrack and Fun.jerkoffTrack2 then
+            if on then
+                Fun.jerkoffTrack.Looped = true
+                Fun.jerkoffTrack:AdjustSpeed(Fun.animationSpeed)
+                Fun.jerkoffTrack:Play()
+                Fun.jerkoffTrack2.Looped = true
+                Fun.jerkoffTrack2:AdjustSpeed(Fun.animationSpeed)
+                Fun.jerkoffTrack2:Play()
+            else
+                Fun.jerkoffTrack:Stop()
+                Fun.jerkoffTrack2:Stop()
+            end
+        end
+    end)
+    makeButton(funTab, "Stop All Animation", function()
+        for _, t in ipairs({ Fun.typingTrack, Fun.crouchTrack, Fun.throwedTrack, Fun.swayTrack, Fun.jerkoffTrack, Fun.jerkoffTrack2 }) do
+            if t then pcall(function() t:Stop() end) end
+        end
+    end)
+
+    -- ==========================================
+    -- 19.11: CLEANUP KHI NHẤN X
+    -- ==========================================
+    gui.Destroying:Connect(function()
+        pcall(function() Fun.stopPose() end)
+        pcall(function() Fun.stopHipDanceV2(localPlayer.Character) end)
+        for _, t in ipairs({ Fun.typingTrack, Fun.crouchTrack, Fun.throwedTrack, Fun.swayTrack, Fun.jerkoffTrack, Fun.jerkoffTrack2 }) do
+            if t then pcall(function() t:Stop() end) end
+        end
+        -- Disconnect tất cả CharacterAdded đã track
+        if Fun._conns then
+            for _, c in ipairs(Fun._conns) do pcall(function() c:Disconnect() end) end
+            Fun._conns = {}
+        end
+    end)
+end
+
+
 -- ==========================================
 -- PLAYER EVENTS
 -- ==========================================
@@ -7351,6 +9979,274 @@ makeToggle(visualTab, "RGB Clouds", false, function(on)
         local c = getClouds()
         if c then c.Color = Color3.fromRGB(255, 255, 255) end
     end
+end)
+
+-- ==========================================
+-- ⭐ BYPASS ANTI (SERVER-WIDE) — vô hiệu anti của TẤT CẢ player
+-- Không cần chọn target. Tự loại trừ Friends / Whitelist / bản thân.
+-- ==========================================
+makeSection(defenseTab, "Bypass Anti (Server-Wide)")
+
+-- Options chung
+state._bypassExcludeFriends = true
+state._bypassExcludeWhitelist = true
+state._bypassTickRate = 0.15     -- giây giữa mỗi tick (chống lag)
+
+makeToggle(defenseTab, "Bypass: Exclude Friends", true, function(on)
+    state._bypassExcludeFriends = on
+end)
+makeToggle(defenseTab, "Bypass: Exclude Whitelist", true, function(on)
+    state._bypassExcludeWhitelist = on
+end)
+makeSlider(defenseTab, "Bypass Tick Rate (ms)", 150, 50, 500, function(v)
+    state._bypassTickRate = v / 1000
+end)
+
+-- Helper: lấy tất cả target còn sống trong server
+local function _bypassGetAll()
+    local out = {}
+    for _, p in ipairs(players:GetPlayers()) do
+        if p ~= localPlayer and p.Character then
+            local skip = false
+            if state._bypassExcludeFriends then
+                local ok, isFriend = pcall(function() return localPlayer:IsFriendsWith(p.UserId) end)
+                if ok and isFriend then skip = true end
+            end
+            if not skip and state._bypassExcludeWhitelist and state.isWL and state.isWL(p) then
+                skip = true
+            end
+            if not skip then
+                local char = p.Character
+                local hrp = char:FindFirstChild("HumanoidRootPart")
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hrp and hum and hum.Health > 0 then
+                    table.insert(out, {player = p, char = char, hrp = hrp, hum = hum})
+                end
+            end
+        end
+    end
+    return out
+end
+
+-- Helper: worker loop với tick rate
+local function _bypassWorker(stateKey, workerFunc)
+    if state[stateKey] then
+        pcall(function() task.cancel(state[stateKey]) end)
+        state[stateKey] = nil
+    end
+    return task.spawn(function()
+        while state["_bypass" .. stateKey:gsub("_bypass", "") .. "On"] do
+            local list = _bypassGetAll()
+            for _, t in ipairs(list) do
+                if not state["_bypass" .. stateKey:gsub("_bypass", "") .. "On"] then break end
+                pcall(workerFunc, t)
+            end
+            task.wait(state._bypassTickRate or 0.15)
+        end
+    end)
+end
+
+-- 1. Bypass Anti Gucci — force drop khỏi vehicle
+state._bypassGucciOn = false
+makeToggle(defenseTab, "Bypass Anti Gucci", false, function(on)
+    state._bypassGucciOn = on
+    if not on then
+        if state._bypassGucciTask then
+            pcall(function() task.cancel(state._bypassGucciTask) end)
+            state._bypassGucciTask = nil
+        end
+        return
+    end
+    state._bypassGucciTask = task.spawn(function()
+        while state._bypassGucciOn do
+            for _, t in ipairs(_bypassGetAll()) do
+                local hum = t.hum
+                if hum and hum.SeatPart then
+                    local seat = hum.SeatPart
+                    local vehicle = seat.Parent
+                    if vehicle then
+                        local script = vehicle:FindFirstChild("BlobmanSeatAndOwnerScript")
+                        if script then
+                            local cr = script:FindFirstChild("CreatureRelease")
+                            local cd = script:FindFirstChild("CreatureDrop")
+                            local det = vehicle:FindFirstChild("LeftDetector")
+                            local weld = det and det:FindFirstChild("LeftWeld")
+                            if cr and cd and weld then
+                                pcall(function() cr:FireServer(weld, t.char) end)
+                                pcall(function() cd:FireServer(weld, t.char) end)
+                            end
+                        end
+                        local sw = seat:FindFirstChild("SeatWeld")
+                        if sw then
+                            pcall(function() setNetworkOwner:FireServer(seat, seat.CFrame) end)
+                            local po = seat:FindFirstChild("PartOwner")
+                            if po and po.Value == localPlayer.Name then
+                                pcall(function() sw:Destroy() end)
+                            end
+                        end
+                        pcall(function() hum.Sit = false end)
+                    end
+                end
+            end
+            task.wait(state._bypassTickRate or 0.15)
+        end
+    end)
+end)
+
+-- 2. Bypass Anti Kick — xóa Shuriken + Pencil của mọi player
+state._bypassKickOn = false
+makeToggle(defenseTab, "Bypass Anti Kick", false, function(on)
+    state._bypassKickOn = on
+    if not on then
+        if state._bypassKickTask then
+            pcall(function() task.cancel(state._bypassKickTask) end)
+            state._bypassKickTask = nil
+        end
+        return
+    end
+    state._bypassKickTask = task.spawn(function()
+        while state._bypassKickOn do
+            for _, t in ipairs(_bypassGetAll()) do
+                local inv = workspace_:FindFirstChild(t.player.Name .. "SpawnedInToys")
+                if inv then
+                    for _, toy in ipairs(inv:GetChildren()) do
+                        local n = toy.Name
+                        if n == "AntiKick" or n == "NinjaShuriken" or n == "ShurikenRSC"
+                            or n == "ToolPencil" or n:find("Anti") then
+                            pcall(function() destroyToyRemote:FireServer(toy) end)
+                        end
+                    end
+                end
+            end
+            task.wait(state._bypassTickRate or 0.15)
+        end
+    end)
+end)
+
+-- 3. Bypass Anti Limp — destroy Humanoid thay vì set Health
+state._bypassLimpOn = false
+makeToggle(defenseTab, "Bypass Anti Limp", false, function(on)
+    state._bypassLimpOn = on
+    if not on then
+        if state._bypassLimpTask then
+            pcall(function() task.cancel(state._bypassLimpTask) end)
+            state._bypassLimpTask = nil
+        end
+        return
+    end
+    state._bypassLimpTask = task.spawn(function()
+        while state._bypassLimpOn do
+            for _, t in ipairs(_bypassGetAll()) do
+                if t.hum.Health > 0 then
+                    for _ = 1, 2 do
+                        pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
+                    end
+                    local po = t.hrp:FindFirstChild("PartOwner")
+                    if po and po.Value == localPlayer.Name then
+                        pcall(function() t.hum:Destroy() end)
+                    end
+                end
+            end
+            task.wait(state._bypassTickRate or 0.15)
+        end
+    end)
+end)
+
+-- 4. Bypass Anti Ownership — kill trong PreRender (nhanh hơn Heartbeat target)
+state._bypassOwnOn = false
+state._bypassOwnConn = nil
+makeToggle(defenseTab, "Bypass Anti Ownership", false, function(on)
+    state._bypassOwnOn = on
+    if state._bypassOwnConn then
+        pcall(function() state._bypassOwnConn:Disconnect() end)
+        state._bypassOwnConn = nil
+    end
+    if not on then return end
+    state._bypassOwnConn = runService.PreRender:Connect(function()
+        if not state._bypassOwnOn then return end
+        -- PreRender chỉ chạy 1 lần/frame → không spam quá nhiều
+        -- Chỉ target 1 người mỗi frame, xoay vòng
+        local list = _bypassGetAll()
+        if #list == 0 then return end
+        state._bypassOwnIdx = ((state._bypassOwnIdx or 0) % #list) + 1
+        local t = list[state._bypassOwnIdx]
+        if t and t.hum.Health > 0 then
+            for _ = 1, 3 do
+                pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
+            end
+            pcall(function() t.hum:ChangeState(Enum.HumanoidStateType.Dead) end)
+            pcall(function() t.hum.Health = 0 end)
+        end
+    end)
+end)
+
+-- 5. Bypass Anti Lag — fire lag dưới ngưỡng Anti Get Kicked (< 5000 / < 60000)
+state._bypassLagOn = false
+makeToggle(defenseTab, "Bypass Anti Lag", false, function(on)
+    state._bypassLagOn = on
+    if not on then
+        if state._bypassLagTask then
+            pcall(function() task.cancel(state._bypassLagTask) end)
+            state._bypassLagTask = nil
+        end
+        return
+    end
+    state._bypassLagTask = task.spawn(function()
+        while state._bypassLagOn do
+            for _, t in ipairs(_bypassGetAll()) do
+                if not state._bypassLagOn then break end
+                if t.hrp and createGrabLine and destroyGrabLine then
+                    for _ = 1, 10 do
+                        pcall(function()
+                            local x = math.random(-4500, 4500)
+                            local y = math.random(-45000, 45000)
+                            local z = math.random(-4500, 4500)
+                            createGrabLine:FireServer(t.hrp, CFrame.new(x, y, z))
+                        end)
+                    end
+                    task.wait(0.02)
+                    for _ = 1, 10 do
+                        pcall(function() destroyGrabLine:FireServer(t.hrp) end)
+                    end
+                end
+                task.wait(0.05)
+            end
+            task.wait(0.3)
+        end
+    end)
+end)
+
+-- 6. Bypass Anti Void — anchor HRP ở Y=0 rồi kill qua explosion path
+state._bypassVoidOn = false
+makeToggle(defenseTab, "Bypass Anti Void", false, function(on)
+    state._bypassVoidOn = on
+    if not on then
+        if state._bypassVoidTask then
+            pcall(function() task.cancel(state._bypassVoidTask) end)
+            state._bypassVoidTask = nil
+        end
+        return
+    end
+    state._bypassVoidTask = task.spawn(function()
+        while state._bypassVoidOn do
+            for _, t in ipairs(_bypassGetAll()) do
+                if t.hum.Health > 0 then
+                    for _ = 1, 2 do
+                        pcall(function() setNetworkOwner:FireServer(t.hrp, t.hrp.CFrame) end)
+                    end
+                    local po = t.hrp:FindFirstChild("PartOwner")
+                    if po and po.Value == localPlayer.Name then
+                        pcall(function()
+                            t.hrp.Anchored = true
+                            t.hrp.CFrame = CFrame.new(t.hrp.Position.X, 0, t.hrp.Position.Z)
+                        end)
+                        pcall(function() t.hum:TakeDamage(math.huge) end)
+                    end
+                end
+            end
+            task.wait(state._bypassTickRate or 0.15)
+        end
+    end)
 end)
 
 -- ==========================================
@@ -9109,6 +12005,17 @@ task.spawn(function()
     if state.flyEnabled          then pcall(ToggleFly, true) end
     if state.antiGrab            then pcall(ToggleAntiGrab, function() return state.antiGrab end) end
     if state.antiLag             then pcall(ToggleAntiLag,  function() return state.antiLag  end) end
+    -- ⭐ NEW: Noclip + Third Person + Infinite Jump + Loop TP (main tab)
+    if state.noclipOn            then pcall(ToggleNoclip, true) end
+    if state.infJump then
+        -- Infinite Jump đã active sẵn qua JumpRequest listener (đọc state mỗi event)
+    end
+    if state.loopTP then
+        -- Loop TP đã active sẵn qua Heartbeat listener (đọc state mỗi frame)
+    end
+    if state.spin and state.spin.on then
+        -- Character Spin active sẵn qua RenderStepped listener (đọc state.spin.on)
+    end
     if state.lineLagRunning      then pcall(StartLineLag) end
     if state.crazyLineRunning    then pcall(StartCrazyLine, 0.1) end
     if state.packetLagRunning    then pcall(StartPacketLag) end
@@ -9161,6 +12068,24 @@ task.spawn(function()
     ["Triggerbot"]            = "trig.on",        -- Fix nested
     ["Silent Aim"]            = "silent.enabled", -- Fix nested
     ["Silent Aim V2"]         = "silentAim",
+    -- ⭐ NEW: 6 grab modes (dùng space trong path, getStatePath split theo dấu chấm → OK)
+    ["Grab: Sky Grab"]         = "grabModes.Sky Grab",
+    ["Grab: Teleport Up"]      = "grabModes.Teleport Up",
+    ["Grab: Teleport Down"]    = "grabModes.Teleport Down",
+    ["Grab: Chaos Grab"]       = "grabModes.Chaos Grab",
+    ["Grab: Supersonic Grab"]  = "grabModes.Supersonic Grab",
+    ["Grab: Freeze Grab"]      = "grabModes.Freeze Grab",
+    -- ⭐ NEW: Super Strength
+    ["Super Strength (Throw on Release)"] = "superStrength",
+    -- ⭐ NEW: Infinity Extend
+    ["Infinity Extend"]        = "infinityExtendOn",
+    -- ⭐ NEW: Third Person (path nested tp3.on)
+    ["Third Person"]           = "tp3.on",
+    -- ⭐ NEW: Tab Main — 4 toggle còn lại
+    ["Noclip"]                 = "noclipOn",
+    ["Infinite Jump"]          = "infJump",
+    ["Loop TP to Player"]      = "loopTP",
+    ["Character Spin"]         = "spin.on",
 }
 
 local function getStatePath(path)
@@ -9212,7 +12137,32 @@ for _, btn in ipairs(gui:GetDescendants()) do
     end
 end
 
-    print("[RYZE] Auto-restore complete. State loaded:", 
+    -- ⭐ 3) Restore slider values (visual + functional)
+    local SLIDER_MAP = {
+        ["WalkSpeed"]               = "mainWalkSpeed",
+        ["JumpPower"]               = "mainJumpPower",
+        ["Fly Speed"]               = "flySpeed",
+        ["Spin Speed (độ/giây)"]    = "spin.speed",
+        ["Jet Speed Multiplier"]    = "jetSpeedMult",
+        ["Super Strength Force"]    = "superStrengthPower",
+        ["Inf Extend Base Distance"] = "infinityExtendDist",
+        ["Inf Extend Step"]         = "infExtendStep",
+        ["Supersonic Force"]        = "supersonicForce",
+        ["Teleport Distance"]       = "tpGrabDist",
+        ["Freeze Distance"]         = "freezeDist",
+        ["Chaos Range"]             = "chaosRange",
+    }
+    if _G.RYZE_Sliders then
+        for label, path in pairs(SLIDER_MAP) do
+            local s = _G.RYZE_Sliders[label]
+            local val = getStatePath(path)
+            if s and type(val) == "number" then
+                pcall(s.setValue, val)
+            end
+        end
+    end
+
+    print("[RYZE] config load complete. config loaded:", 
         state.flyEnabled and "Fly=ON" or "Fly=off",
         state.antiGrab and "| AntiGrab=ON" or "")
 end)
@@ -9634,10 +12584,17 @@ print("[RYZE v3.0] Port complete. Check Console for executor info.")
 -- ==========================================
 -- LINE LAG: notify 1 lần + auto anti lag
 -- PACKET LAG: giữ nguyên logic gốc (lọc 300, báo mỗi lần)
+-- ⭐ BẢN PATCH: chặn self-notify — khi chính mình làm lag, không báo về mình
 -- ==========================================
 do
     local _notifiedLine = false
     local _lastPacketTick = 0
+    _G.RYZE_LastSelfLineFire = _G.RYZE_LastSelfLineFire or 0
+    _G.RYZE_LastSelfPacketFire = _G.RYZE_LastSelfPacketFire or 0
+    local SELF_GRACE = 0.5  -- giây "ân hạn" sau khi mình fire → bỏ qua notify
+
+    local function isSelfLine()   return (tick() - (_G.RYZE_LastSelfLineFire or 0)) < SELF_GRACE end
+    local function isSelfPacket() return (tick() - (_G.RYZE_LastSelfPacketFire or 0)) < SELF_GRACE end
 
     local function autoEnableAntiLag()
         if not state.antiLag then
@@ -9662,6 +12619,9 @@ do
                 if typeof(arg3) == "CFrame"
                     and (math.abs(arg3.X) > 30000 or math.abs(arg3.Z) > 30000) then
                     autoEnableAntiLag()
+                    -- ⭐ Block self: nếu chính mình → không notify
+                    if arg == localPlayer then return end
+                    if isSelfLine() then return end
                     if not _notifiedLine then
                         _notifiedLine = true
                         pcall(Notify, "Line Lag Detected!",
@@ -9684,7 +12644,10 @@ do
                     end
                 end
                 if maxLen <= 300 then return end
+                -- ⭐ Block self: 3 lớp bảo vệ
                 if player == localPlayer then return end
+                if isSelfPacket() then return end
+                if not player then return end  -- không xác định được ai → bỏ qua
 
                 -- chống spam gốc 0.1s
                 local now = tick()
@@ -9692,7 +12655,7 @@ do
                 _lastPacketTick = now
 
                 local mb = math.round(maxLen / 1048576 * 1000) / 1000
-                local who = player and (player.DisplayName .. " (@" .. player.Name .. ")") or "Unknown Player"
+                local who = player.DisplayName .. " (@" .. player.Name .. ")"
                 pcall(Notify, "Packet Lag Detected!", who .. " | " .. mb .. " MB", "warning", 4)
 
                 autoEnableAntiLag()
@@ -9700,6 +12663,100 @@ do
         end
     end)
 end
+
+-- ==========================================
+-- ⭐ CLEANUP TỔNG KHI NHẤN X / RE-INJECT
+-- Đảm bảo mọi loop/task mới đều dừng sạch
+-- ==========================================
+gui.Destroying:Connect(function()
+    -- 1. Line Lag
+    pcall(function()
+        state.lineLagRunning = false
+    end)
+    -- 2. Packet Lag
+    pcall(function()
+        state.packetLagRunning = false
+    end)
+    -- 3. ExecuteNoBlobKick: đang chạy → ép dừng
+    pcall(function()
+        if type(_G.RYZE_StopNoBlob) == "function" then _G.RYZE_StopNoBlob() end
+    end)
+    -- 4. LoopKickBlob
+    pcall(function()
+        if type(StopLoopKickBlob) == "function" then StopLoopKickBlob() end
+    end)
+    -- 5. Gather Kick All
+    pcall(function()
+        if type(_G.RYZE_StopGatherKickAll) == "function" then _G.RYZE_StopGatherKickAll() end
+    end)
+    -- 6. Super Strength listener
+    pcall(function()
+        if state._ssConn then state._ssConn:Disconnect() state._ssConn = nil end
+        _G.MobileSuperStrengthTriggered = false
+    end)
+    -- 6b. Third Person: reset camera
+    pcall(function()
+        if state.tp3Conn then state.tp3Conn:Disconnect() state.tp3Conn = nil end
+        localPlayer.CameraMinZoomDistance = 0.5
+        localPlayer.CameraMaxZoomDistance = 128
+    end)
+    -- 7. Infinity Extend BodyPosition còn sót
+    pcall(function()
+        local gp = workspace_:FindFirstChild("GrabParts")
+        if gp then
+            local grabPart = gp:FindFirstChild("GrabPart")
+            if grabPart then
+                local bp = grabPart:FindFirstChild("_RYZE_InfExtendBP")
+                if bp then bp:Destroy() end
+            end
+            local dragPart = gp:FindFirstChild("DragPart")
+            if dragPart then
+                local alignPos = dragPart:FindFirstChildOfClass("AlignPosition")
+                if alignPos then alignPos.Enabled = true end
+            end
+        end
+    end)
+    -- 8. Super Strength BodyVelocity còn sót trên target
+    pcall(function()
+        for _, p in ipairs(players:GetPlayers()) do
+            if p.Character then
+                for _, d in ipairs(p.Character:GetDescendants()) do
+                    if d:IsA("BodyVelocity") and d.Name == "_RYZE_SSBV" then
+                        d:Destroy()
+                    end
+                end
+            end
+        end
+    end)
+    -- 9. Bypass Anti (Server-Wide): dừng hết + cancel task + disconnect conn
+    pcall(function()
+        state._bypassGucciOn = false
+        state._bypassKickOn = false
+        state._bypassLimpOn = false
+        state._bypassOwnOn = false
+        state._bypassLagOn = false
+        state._bypassVoidOn = false
+        for _, k in ipairs({"_bypassGucciTask", "_bypassKickTask", "_bypassLimpTask",
+                            "_bypassLagTask", "_bypassVoidTask"}) do
+            if state[k] then
+                pcall(task.cancel, state[k])
+                state[k] = nil
+            end
+        end
+        if state._bypassOwnConn then
+            pcall(function() state._bypassOwnConn:Disconnect() end)
+            state._bypassOwnConn = nil
+        end
+    end)
+    -- 10. BodyMat folder orphan trên localPlayer
+    pcall(function()
+        local orphan = localPlayer:FindFirstChild("_RYZE_BodyMatStash")
+        while orphan do
+            pcall(function() orphan:Destroy() end)
+            orphan = localPlayer:FindFirstChild("_RYZE_BodyMatStash")
+        end
+    end)
+end)
 
 Notify("Loaded", "RYZE v3.0 loaded!", "success", 4)
 print("[RYZE v3.0] Loaded. 13 tabs")
