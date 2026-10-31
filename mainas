@@ -104,9 +104,8 @@ print("[RYZE] FTAP remotes:", grabEvents and "OK" or "NOT FOUND (GUI will still 
 local _isSaving = false
 local _savePending = false
 function _G.QueueSave(fromParent)
-    -- ⭐ CHỈ save khi thao tác từ tab Config (settingsTab/customTab/notifyTab - cùng 1 instance)
     if _G.RYZE_SettingsTab and fromParent ~= _G.RYZE_SettingsTab then
-        return  -- bỏ qua hoàn toàn, không schedule, không ghi file
+        return
     end
     if not _G.saveConfig then return end
     if _isSaving then
@@ -119,7 +118,7 @@ function _G.QueueSave(fromParent)
         _isSaving = false
         if _savePending then
             _savePending = false
-            _G.QueueSave(parent)
+            _G.QueueSave(fromParent)
         end
     end)
 end
@@ -900,9 +899,16 @@ function ExecuteNoBlobKick()
     task.spawn(function()
         state.lineLagRunning = false
         StartLineLag()
-        local allPlayers = {}
+                local allPlayers = {}
         for _, p in ipairs(players:GetPlayers()) do
-            if p ~= localPlayer then table.insert(allPlayers, p) end
+            if p ~= localPlayer and not (state.isWL and state.isWL(p)) then
+                local isFriend = false
+                if state.kickExcludeFriends then
+                    local ok, res = pcall(function() return localPlayer:IsFriendsWith(p.UserId) end)
+                    isFriend = ok and res
+                end
+                if not isFriend then table.insert(allPlayers, p) end
+            end
         end
         if #allPlayers == 0 then StopLineLag() noBlobRunning = false return end
         local filtered = {}
@@ -1096,7 +1102,12 @@ function _RYZE_getKickTargets()
     local out = {}
     for _, p in ipairs(players:GetPlayers()) do
         if p ~= localPlayer and not (state.isWL and state.isWL(p)) then
-            table.insert(out, p)
+            local isFriend = false
+            if state.kickExcludeFriends then
+                local ok, res = pcall(function() return localPlayer:IsFriendsWith(p.UserId) end)
+                isFriend = ok and res
+            end
+            if not isFriend then table.insert(out, p) end
         end
     end
     return out
@@ -1460,11 +1471,18 @@ function ExecuteGatherKickAll()
         local char = localPlayer.Character or localPlayer.CharacterAdded:Wait()
         local hrp = char:WaitForChild("HumanoidRootPart", 10)
         if not hrp then StopGatherKickAll() return end
-        local targets = {}
+                local targets = {}
         for _, p in ipairs(players:GetPlayers()) do
             if p ~= localPlayer and not (state.isWL and state.isWL(p)) then
-                local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
-                if tHrp then table.insert(targets, {player = p, hrp = tHrp}) end
+                local isFriend = false
+                if state.kickExcludeFriends then
+                    local ok, res = pcall(function() return localPlayer:IsFriendsWith(p.UserId) end)
+                    isFriend = ok and res
+                end
+                if not isFriend then
+                    local tHrp = p.Character and p.Character:FindFirstChild("HumanoidRootPart")
+                    if tHrp then table.insert(targets, {player = p, hrp = tHrp}) end
+                end
             end
         end
         if #targets == 0 then
@@ -3411,6 +3429,8 @@ function makeInput(parent, text, default, cb)
         pcall(cb, box.Text)
         if _G.QueueSave then _G.QueueSave(parent) end
     end)
+    _layoutIndex += 1
+    frame.LayoutOrder = _layoutIndex
     table.insert(allElements, { name = text, obj = frame, page = parent })
     return frame
 end
@@ -3509,6 +3529,8 @@ function makeDropdown(parent, text, options, default, cb)
         end
     end)
 
+    _layoutIndex += 1
+    frame.LayoutOrder = _layoutIndex
     table.insert(allElements, { name = text, obj = frame, page = parent })
     return frame
 end
@@ -3836,6 +3858,8 @@ info.Parent = settingsTab
 local ic = Instance.new("UICorner")
 ic.CornerRadius = UDim.new(0, 6)
 ic.Parent = info
+_layoutIndex += 1
+info.LayoutOrder = _layoutIndex
 
 -- CUSTOM TAB
 makeSection(customTab, "Custom Features")
@@ -4256,6 +4280,8 @@ wlLabel.TextWrapped = true
 wlLabel.Text = "Whitelist: (empty)"
 wlLabel.Parent = customTab
 Instance.new("UICorner", wlLabel).CornerRadius = UDim.new(0, 6)
+_layoutIndex += 1
+wlLabel.LayoutOrder = _layoutIndex
 
 function refreshWL()
     local names = {}
@@ -4984,8 +5010,14 @@ bgInfoLabel.Font = Enum.Font.Gotham
 bgInfoLabel.TextSize = 11
 bgInfoLabel.TextWrapped = true
 bgInfoLabel.Text = "Current background: " .. (_G.RYZEBgName or DEFAULT_BG_NAME)
-bgInfoLabel.Parent = settingsTab
-Instance.new("UICorner", bgInfoLabel).CornerRadius = UDim.new(0, 6)
+makeButton(aimTab, "leave Trainer ", leaveTrainer)
+scoreLabel.Parent = aimTab
+Instance.new("UICorner", scoreLabel).CornerRadius = UDim.new(0, 6)
+_layoutIndex += 1
+scoreLabel.LayoutOrder = _layoutIndex
+end -- kết thúc khối do của Module 4
+_layoutIndex += 1
+bgInfoLabel.LayoutOrder = _layoutIndex
 
 makeInput(settingsTab, "Google Drive Link", _G.RYZEBgLink or DEFAULT_BG_LINK, function(v)
     state.bgLink = v
@@ -5290,7 +5322,7 @@ local localMouse = localPlayer:GetMouse()
 
 
 -- Keybind button: bấm nút rồi nhấn phím để đổi
-local keybindButtons = {}
+keybindButtons = {}
 function makeKeybind(parent, text, default, cb)
     local btn = makeButton(parent, text .. ": " .. default.Name, function() end)
     table.insert(keybindButtons, { btn = btn, label = text })
@@ -5306,9 +5338,6 @@ function makeKeybind(parent, text, default, cb)
             cb(i.KeyCode)
         end
     end)
-    _layoutIndex += 1
-    btn.LayoutOrder = _layoutIndex
-    table.insert(allElements, { name = text, obj = btn, page = parent })
     cb(default)
     return btn
 end
@@ -6383,8 +6412,7 @@ local _killTracked = {}
         Debris:AddItem(bp, 30)
     end
 
-          -- GRAB HANDLER (mở rộng từ bản gốc)
-          workspace_.ChildAdded:Connect(function(child)
+              state.grabModeConn = workspace_.ChildAdded:Connect(function(child)
         if child.Name ~= "GrabParts" then return end
         task.wait(0.05)
         local part = _getGrabbedPart()
@@ -7048,9 +7076,6 @@ function _G.RYZEKeybind(parent, text, default, cb)
             if _G.QueueSave then _G.QueueSave(parent) end
         end
     end)
-    _layoutIndex += 1
-    btn.LayoutOrder = _layoutIndex
-    table.insert(allElements, { name = text, obj = btn, page = parent })
     cb(default)
     return btn
 end
@@ -7312,7 +7337,9 @@ do
     cdLabel.TextSize = 12
     cdLabel.Text = "Cooldown: --:--"
     cdLabel.Parent = serverTab
-    Instance.new("UICorner", cdLabel).CornerRadius = UDim.new(0, 6)
+Instance.new("UICorner", cdLabel).CornerRadius = UDim.new(0, 6)
+_layoutIndex += 1
+cdLabel.LayoutOrder = _layoutIndex
     task.spawn(function()
         while gui.Parent do
             task.wait(1)
@@ -9129,6 +9156,11 @@ do
     local function stopShield()
         _G.ShieldActive = false
         for _, c in ipairs(shieldConns) do pcall(function() c:Disconnect() end) end
+        for _, s in ipairs(shieldParts) do
+            if s.model and s.model.Parent then
+                pcall(function() destroyToyRemote:FireServer(s.model) end)
+            end
+        end
         shieldConns, shieldParts = {}, {}
     end
 
@@ -9304,6 +9336,13 @@ do
     local function stopTentacle()
         _G.TentacleActive = false
         for _, c in ipairs(tentConns) do pcall(function() c:Disconnect() end) end
+        for _, seg in pairs(tentSegs) do
+            for _, p in ipairs(seg.parts or {}) do
+                if p.model and p.model.Parent then
+                    pcall(function() destroyToyRemote:FireServer(p.model) end)
+                end
+            end
+        end
         tentConns, tentSegs = {}, {}
     end
     local function segPos(base, i, x, y, z, off)
@@ -9520,6 +9559,11 @@ do
     local function stopProps()
         _G.PropsActive = false
         for _, c in ipairs(propConns) do pcall(function() c:Disconnect() end) end
+        for _, p in ipairs(propParts) do
+            if p.model and p.model.Parent then
+                pcall(function() destroyToyRemote:FireServer(p.model) end)
+            end
+        end
         propConns, propParts = {}, {}
     end
     local function startProps()
@@ -9688,6 +9732,11 @@ do
             for _, s in ipairs(w.Segments) do
                 if s.Part then pcall(function() s.Part:Destroy() end) end
             end
+            for _, m in ipairs(w.Models or {}) do
+                if m and m.Parent then
+                    pcall(function() destroyToyRemote:FireServer(m) end)
+                end
+            end
         end
         wings = {}
     end
@@ -9713,7 +9762,7 @@ do
             local h = Instance.new("Part")
             h.CanCollide = false; h.Anchored = true; h.Transparency = 1
             h.Size = Vector3.new(4, 1, 4); h.Parent = workspace_
-            table.insert(wings, { Handle = h, Segments = segs, Sync = {}, Reserved = nil })
+            table.insert(wings, { Handle = h, Segments = segs, Sync = {}, Reserved = nil, Models = {} })
         end
         for i, m in ipairs(models) do
             local side = i <= #models/2 and 1 or 2
@@ -9725,6 +9774,7 @@ do
                 local bg, bp = setupPhysics(sp)
                 if not wings[side].Reserved then wings[side].Reserved = { BG = bg, BP = bp }
                 else table.insert(wings[side].Sync, { BG = bg, BP = bp }) end
+                table.insert(wings[side].Models, m)
             end
         end
         return true
@@ -10537,7 +10587,10 @@ do
             end
         end)
     end)
-    gui.Destroying:Connect(function() on = false end)
+    gui.Destroying:Connect(function()
+        on = false
+        if conn then conn:Disconnect() conn = nil end
+    end)
 end
 
 -- 5) ANCHOR + COMPILE GROUPS
@@ -10742,7 +10795,11 @@ do
             end
         end)
     end)
-    gui.Destroying:Connect(cleanup)
+        gui.Destroying:Connect(function()
+        on = false
+        if monitor then pcall(task.cancel, monitor) monitor = nil end
+        cleanup()
+    end)
 end
 
 -- 7) PERSPECTIVE GRAB
@@ -10798,8 +10855,15 @@ do
             stopPerspective()
         end
     end)
-    gui.Destroying:Connect(stopPerspective)
+       gui.Destroying:Connect(function()
+        on = false
+        stopPerspective()
+    end)
 end
+
+
+
+
 
 
 
@@ -11823,6 +11887,14 @@ do
     local function stopCoconut()
         _G.En = false
         if coconutTask then pcall(task.cancel, coconutTask) coconutTask = nil end
+        local folder = workspace_:FindFirstChild(localPlayer.Name .. "SpawnedInToys")
+        if folder then
+            for _, c in ipairs(folder:GetChildren()) do
+                if c.Name == "FoodCoconut" then
+                    pcall(function() destroyToyRemote:FireServer(c) end)
+                end
+            end
+        end
     end
 
     makeSection(funTab, "Coconut Pattern")
@@ -16185,7 +16257,7 @@ end
         end)
     end
     gucciV1CacheRemotes()
-    makeToggle(defenseTab, "Anti Gucci V2", false, function(on)
+    makeToggle(defenseTab, "Anti Gucci V1", false, function(on)
         if on then
             gucciV1.autoRespawn = true
             if localPlayer.Character then gucciV1ConnectDeath(localPlayer.Character) end
@@ -16386,7 +16458,8 @@ function testHookSupport()
     return ok, ok and "hook works" or "hook call failed"
 end
 
-local hookOK, hookMsg = testHookSupport()
+local hookOK, hookMsg = false, "hook disabled"
+local allowHook = false
 
 -- Rule: PC executors blocked. Mobile/Unknown: use if hook works.
 local allowHook = false
@@ -18264,6 +18337,13 @@ do
                 end
             end
         end
+        end)
+    gui.Destroying:Connect(function()
+        ownershipKickActive = false
+        if ownershipKickTask then
+            pcall(task.cancel, ownershipKickTask)
+            ownershipKickTask = nil
+        end
     end)
 
     
@@ -18441,7 +18521,7 @@ end
 
           
 
-        makeToggle(kickTab, "Blob Lock ", false, function(on)
+            makeToggle(kickTab, "Blob Lock ", false, function(on)
         if on then
             if not state.targetName then Notify("Kick", "Choose target first", "warning", 2) return end
             BlobLock:Start(state.targetName)
@@ -18449,6 +18529,7 @@ end
             BlobLock:Stop()
         end
     end)
+    gui.Destroying:Connect(function() BlobLock:Stop() end)
 
 
  
@@ -19189,4 +19270,57 @@ end
     end)
 end)
 Notify("Loaded", "RYZE v3.0 loaded!", "success", 4)
+gui.Destroying:Connect(function()
+    local FLAGS = {
+        "flyEnabled", "antiGrab", "antiLag", "antiVoid", "antiBlobmanOn",
+        "noclipOn", "antiLimp", "antiLimpCreature",
+        "lineLagRunning", "crazyLineRunning", "packetLagRunning",
+        "loopNoBlobRunning", "loopBlobRunning", "bananaAllRunning",
+        "autoExplodeRunning", "soundSpamRunning", "stealRunning",
+        "syncAllRunning", "toyAuraAdv", "expLoop", "spinRunning",
+        "autoRespawn", "loopTP", "infJump", "waterSplash",
+        "advAntiKick", "antiSnow", "realFP",
+    }
+    for _, k in ipairs(FLAGS) do
+        if state[k] ~= nil then state[k] = false end
+    end
+    if state.spin then state.spin.on = false end
+    if state.tp3 then state.tp3.on = false end
+    if state.visual then state.visual.rainbowOn = false end
+
+    local CONNS = {
+        "_flyConn", "_antiGrabConn", "_antiLagConn", "_antiVoidConn",
+        "_antiBlobConn", "_noclipConn",
+        "_antiLimpCreatureConn", "_antiLimpCreatureCharConn",
+        "tp3Conn", "waterSplashConn", "cloudRGBConn",
+        "advAntiKickConn", "antiSnowConn", "realFPConn",
+        "grabModeConn",
+    }
+    for _, k in ipairs(CONNS) do
+        if state[k] then
+            pcall(function() state[k]:Disconnect() end)
+            state[k] = nil
+        end
+    end
+    if state._antiLimpConns then
+        for _, c in ipairs(state._antiLimpConns) do
+            pcall(function() c:Disconnect() end)
+        end
+        state._antiLimpConns = {}
+    end
+
+    for _, p in ipairs(players:GetPlayers()) do
+        if p.Character then
+            for _, d in ipairs(p.Character:GetDescendants()) do
+                if d:IsA("BodyPosition") or d:IsA("BodyGyro") or d:IsA("BodyVelocity") then
+                    local n = d.Name
+                    if n:find("_RYZE") or n:find("_Spam") or n:find("Kick") or n:find("Orbit") or n:find("FlingAura") then
+                        pcall(function() d:Destroy() end)
+                    end
+                end
+            end
+        end
+    end
+end)
+
 print("[RYZE v3.0] Loaded. 13 tabs")
