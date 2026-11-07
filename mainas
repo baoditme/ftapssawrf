@@ -1004,6 +1004,9 @@ MainTab:CreateToggle({
 })
 
 -- INFINITE ZOOM
+local fovOn = false
+if type(state.fovValue) ~= "number" then state.fovValue = 70 end
+
 MainTab:CreateToggle({
     Name = "Infinite Zoom", Default = false,
     Callback = function(on)
@@ -1011,10 +1014,41 @@ MainTab:CreateToggle({
             LocalPlayer.CameraMaxZoomDistance = 5000000
             LocalPlayer.CameraMinZoomDistance = 0.5
         else
-            LocalPlayer.CameraMaxZoomDistance = 0.5
+            LocalPlayer.CameraMaxZoomDistance = 128
             LocalPlayer.CameraMinZoomDistance = 0.5
         end
-        Workspace.CurrentCamera.FieldOfView = 70
+        if fovOn then
+            Workspace.CurrentCamera.FieldOfView = state.fovValue
+        else
+            Workspace.CurrentCamera.FieldOfView = 70
+        end
+        saveConfig()
+    end,
+})
+
+-- THIRD PERSON (default to 3rd person, vẫn cho zoom vào 1st person) — không lưu config
+local _tpSavedMinZoom, _tpSavedMaxZoom = nil, nil
+
+MainTab:CreateToggle({
+    Name = "Third Person", Default = false,
+    Callback = function(on)
+        if on then
+            _tpSavedMinZoom = LocalPlayer.CameraMinZoomDistance
+            _tpSavedMaxZoom = LocalPlayer.CameraMaxZoomDistance
+            LocalPlayer.CameraMode = Enum.CameraMode.Classic
+            Workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+            local char = LocalPlayer.Character
+            local hum = char and char:FindFirstChildOfClass("Humanoid")
+            if hum then
+                Workspace.CurrentCamera.CameraSubject = hum
+            end
+        else
+            LocalPlayer.CameraMode = Enum.CameraMode.Classic
+            if _tpSavedMinZoom then
+                LocalPlayer.CameraMinZoomDistance = _tpSavedMinZoom
+                LocalPlayer.CameraMaxZoomDistance = _tpSavedMaxZoom
+            end
+        end
     end,
 })
 
@@ -1113,8 +1147,6 @@ MainTab:CreateSlider({
 })
 
 -- CUSTOM FOV
-if type(state.fovValue) ~= "number" then state.fovValue = 70 end
-local fovOn = false
 MainTab:CreateToggle({
     Name = "Custom FOV", Default = false,
     Callback = function(on)
@@ -6741,6 +6773,7 @@ local _BH = {
     },
     state = {
         watcher = nil, entries = {}, rainbowConn = nil, hue = 0,
+        currentColor = Color3.fromRGB(120, 200, 255),
     },
 }
 local _BH_apply, _BH_cleanup, _BH_shrink
@@ -6778,10 +6811,15 @@ local _BH_holePicker = FunTab:CreateColorpicker({
     Name = "Hole Color",
     Default = Color3.fromRGB(120, 200, 255),
     Callback = function(c)
-        if _BH.settings.rainbow then return end
         _BH.settings.color = c
+        if _BH.settings.rainbow then return end
+        _BH.state.currentColor = c
         for _, entry in pairs(_BH.state.entries) do
             if entry.custom and entry.custom.Parent then entry.custom.Color = c end
+            if entry.glow and entry.glow.Parent then entry.glow.Color = c end
+            if entry.light and entry.light.Parent then entry.light.Color = c end
+            if entry.horizon and entry.horizon.Parent then entry.horizon.Color = c end
+            if entry.ring and entry.ring.Parent then entry.ring.Color = ColorSequence.new(c) end
         end
     end,
 })
@@ -6815,8 +6853,13 @@ FunTab:CreateToggle({
         _BH.settings.rainbow = on
         if _BH.state.rainbowConn then _BH.state.rainbowConn:Disconnect() _BH.state.rainbowConn = nil end
         if not on then
+            _BH.state.currentColor = _BH.settings.color
             for _, entry in pairs(_BH.state.entries) do
                 if entry.custom and entry.custom.Parent then entry.custom.Color = _BH.settings.color end
+                if entry.glow and entry.glow.Parent then entry.glow.Color = _BH.settings.color end
+                if entry.light and entry.light.Parent then entry.light.Color = _BH.settings.color end
+                if entry.horizon and entry.horizon.Parent then entry.horizon.Color = _BH.settings.color end
+                if entry.ring and entry.ring.Parent then entry.ring.Color = ColorSequence.new(_BH.settings.color) end
             end
             _BH_syncPicker(_BH.settings.color)
             return
@@ -6824,8 +6867,13 @@ FunTab:CreateToggle({
         _BH.state.rainbowConn = RunService.Heartbeat:Connect(function(dt)
             _BH.state.hue = (_BH.state.hue + dt * 0.3) % 1
             local c = Color3.fromHSV(_BH.state.hue, 1, 1)
+            _BH.state.currentColor = c
             for _, entry in pairs(_BH.state.entries) do
                 if entry.custom and entry.custom.Parent then entry.custom.Color = c end
+                if entry.glow and entry.glow.Parent then entry.glow.Color = c end
+                if entry.light and entry.light.Parent then entry.light.Color = c end
+                if entry.horizon and entry.horizon.Parent then entry.horizon.Color = c end
+                if entry.ring and entry.ring.Parent then entry.ring.Color = ColorSequence.new(c) end
             end
             _BH_syncPicker(c)
         end)
@@ -6882,7 +6930,7 @@ function _BH_apply(model)
     custom.Name = "_RYZE_BH_Custom"
     custom.Shape = Enum.PartType.Ball
     custom.Material = Enum.Material.Neon
-    custom.Color = _BH.settings.color
+    custom.Color = Color3.new(0, 0, 0)
     custom.Size = Vector3.new(0.5, 0.5, 0.5)
     custom.Anchored = true
     custom.CanCollide = false
@@ -6893,18 +6941,95 @@ function _BH_apply(model)
     custom.Parent = Workspace
     entry.custom = custom
 
-    table.insert(entry.conns, RunService.Heartbeat:Connect(function()
+    local glow = Instance.new("Part")
+    glow.Name = "_RYZE_BH_Glow"
+    glow.Shape = Enum.PartType.Ball
+    glow.Material = Enum.Material.ForceField
+    glow.Color = _BH.state.currentColor
+    glow.Transparency = 0.35
+    glow.Size = Vector3.new(0.7, 0.7, 0.7)
+    glow.Anchored = true
+    glow.CanCollide = false
+    glow.CanTouch = false
+    glow.CanQuery = false
+    glow.CastShadow = false
+    glow.CFrame = custom.CFrame
+    glow.Parent = custom
+    entry.glow = glow
+
+    local light = Instance.new("PointLight")
+    light.Color = _BH.state.currentColor
+    light.Range = 30
+    light.Brightness = 3
+    light.Parent = custom
+    entry.light = light
+
+    local ringAttach = Instance.new("Attachment")
+    ringAttach.Parent = custom
+    local ring = Instance.new("ParticleEmitter")
+    ring.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    ring.Color = ColorSequence.new(_BH.state.currentColor)
+    ring.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.3),
+        NumberSequenceKeypoint.new(0.5, 0.6),
+        NumberSequenceKeypoint.new(1, 0),
+    })
+    ring.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.2),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    ring.Lifetime = NumberRange.new(0.6, 1.1)
+    ring.Rate = 40
+    ring.Speed = NumberRange.new(2, 4)
+    ring.SpreadAngle = Vector2.new(180, 180)
+    ring.Rotation = NumberRange.new(0, 360)
+    ring.RotSpeed = NumberRange.new(-120, 120)
+    ring.LightEmission = 1
+    ring.Parent = ringAttach
+    entry.ring = ring
+
+    local horizon = Instance.new("Part")
+    horizon.Name = "_RYZE_BH_Horizon"
+    horizon.Shape = Enum.PartType.Cylinder
+    horizon.Material = Enum.Material.Neon
+    horizon.Color = _BH.state.currentColor
+    horizon.Transparency = 0.6
+    horizon.Size = Vector3.new(0.1, 2, 2)
+    horizon.Anchored = true
+    horizon.CanCollide = false
+    horizon.CanTouch = false
+    horizon.CanQuery = false
+    horizon.CastShadow = false
+    horizon.CFrame = custom.CFrame * CFrame.Angles(0, 0, math.rad(90))
+    horizon.Parent = custom
+    entry.horizon = horizon
+
+    local t = 0
+    table.insert(entry.conns, RunService.Heartbeat:Connect(function(dt)
         if not custom.Parent or not hole.Parent then return end
+        t = t + dt
         custom.CFrame = CFrame.new(hole.Position)
+        glow.CFrame = custom.CFrame
+        local pulse = 0.65 + math.sin(t * 3) * 0.08
+        glow.Size = Vector3.new(pulse, pulse, pulse)
+        horizon.CFrame = custom.CFrame * CFrame.Angles(0, t * 1.5, math.rad(90))
+        light.Brightness = 3 + math.sin(t * 4) * 0.8
     end))
 
     local tw = TweenService:Create(custom, TweenInfo.new(_BH.settings.expandTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
         Size = Vector3.new(_BH.settings.baseSize, _BH.settings.baseSize, _BH.settings.baseSize),
     })
     tw:Play()
+    TweenService:Create(glow, TweenInfo.new(_BH.settings.expandTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = Vector3.new(_BH.settings.baseSize * 1.3, _BH.settings.baseSize * 1.3, _BH.settings.baseSize * 1.3),
+    }):Play()
+    TweenService:Create(horizon, TweenInfo.new(_BH.settings.expandTime, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Size = Vector3.new(0.1, _BH.settings.baseSize * 2.2, _BH.settings.baseSize * 2.2),
+    }):Play()
 
     task.spawn(function()
         while custom.Parent and hole.Parent and _BH.settings.on do
+            local boltColor = _BH.state.currentColor
             for _ = 1, _BH.settings.lightningPerTick do
                 local segments = math.random(6, 10)
                 local startPos = Vector3.new(
@@ -6915,8 +7040,8 @@ function _BH_apply(model)
                 local endPos = custom.Position
                 local points = {startPos}
                 for i = 1, segments - 1 do
-                    local t = i / segments
-                    local base = startPos:Lerp(endPos, t)
+                    local tt = i / segments
+                    local base = startPos:Lerp(endPos, tt)
                     local offX = math.random(-10, 10)
                     local offZ = math.random(-10, 10)
                     table.insert(points, base + Vector3.new(offX, 0, offZ))
@@ -6937,7 +7062,7 @@ function _BH_apply(model)
                     beam.Width1 = 0.15
                     beam.FaceCamera = true
                     beam.Segments = 1
-                    beam.Color = ColorSequence.new(_BH.settings.color)
+                    beam.Color = ColorSequence.new(boltColor)
                     beam.Transparency = NumberSequence.new({
                         NumberSequenceKeypoint.new(0, 0),
                         NumberSequenceKeypoint.new(0.5, 0.15),
@@ -6972,6 +7097,16 @@ function _BH_shrink(model)
             Size = Vector3.new(0.05, 0.05, 0.05),
         })
         tw:Play()
+        if entry.glow and entry.glow.Parent then
+            TweenService:Create(entry.glow, TweenInfo.new(_BH.settings.shrinkTime, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+                Size = Vector3.new(0.05, 0.05, 0.05),
+            }):Play()
+        end
+        if entry.horizon and entry.horizon.Parent then
+            TweenService:Create(entry.horizon, TweenInfo.new(_BH.settings.shrinkTime, Enum.EasingStyle.Back, Enum.EasingDirection.In), {
+                Size = Vector3.new(0.05, 0.05, 0.05),
+            }):Play()
+        end
         tw.Completed:Once(function() _BH_cleanup(model) end)
     else
         _BH_cleanup(model)
@@ -7794,18 +7929,7 @@ SettingsTab:CreateButton({
     end,
 })
 
-SettingsTab:CreateSection("Notifications")
-SettingsTab:CreateToggle({
-    Name = "Enable All Notify",
-    Default = state.notifyMaster ~= false,
-    Callback = function(on)
-        state.notifyMaster = on
-        saveConfig()
-        if on then
-            Notify("Notify", "All notifications enabled", "success", 2)
-        end
-    end,
-})
+
 
 SettingsTab:CreateSection("Notifications")
 SettingsTab:CreateToggle({
@@ -8076,6 +8200,526 @@ task.spawn(function()
             for _, o in ipairs(created) do pcall(function() o:Destroy() end) end
         end)
     end
+end)
+
+-- ============================================================
+-- [DECAL HUD] Apply avatar image onto SpawnLocation.Decal face
+-- Hide original decal, overlay SurfaceGui with square icon + gradient border
+-- ============================================================
+task.spawn(function()
+    local DRIVE_CACHE     = "ryze_ftap_avatar"
+    local RAINBOW_SPEED   = 0.12
+    local BORDER_THICK    = 10    -- dày hơn (trước là 2)
+    local CORNER_RADIUS   = 0.15
+    local PIXELS_PER_STUD = 50
+    local PADDING         = 0.15
+
+    local spawnPart = workspace:FindFirstChild("SpawnLocation")
+    if not spawnPart then
+        warn("[DecalHUD] SpawnLocation not found")
+        return
+    end
+
+    local decal = spawnPart:FindFirstChild("Decal")
+    if not decal or not decal:IsA("Decal") then
+        warn("[DecalHUD] SpawnLocation.Decal not found")
+        return
+    end
+
+    local origTransparency = decal.Transparency
+    local face = decal.Face
+
+    local texture = loadCache(DRIVE_CACHE)
+    if not texture then
+        local ok, res = pcall(dlImage, AVATAR_LINK, DRIVE_CACHE)
+        if ok and res then texture = res end
+    end
+    if not texture then
+        warn("[DecalHUD] cannot load avatar image")
+        return
+    end
+
+    local old = spawnPart:FindFirstChild("_RYZE_DecalHUD")
+    if old then old:Destroy() end
+
+    decal.Transparency = 1
+
+    local sg = Instance.new("SurfaceGui")
+    sg.Name = "_RYZE_DecalHUD"
+    sg.Face = face
+    sg.SizingMode = Enum.SurfaceGuiSizingMode.PixelsPerStud
+    sg.PixelsPerStud = PIXELS_PER_STUD
+    sg.LightInfluence = 0
+    sg.Adornee = spawnPart
+    sg.Parent = spawnPart
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.fromScale(1, 1)
+    frame.BackgroundTransparency = 1
+    frame.Parent = sg
+
+    local pad = Instance.new("UIPadding", frame)
+    pad.PaddingTop = UDim.new(PADDING, 0)
+    pad.PaddingBottom = UDim.new(PADDING, 0)
+    pad.PaddingLeft = UDim.new(PADDING, 0)
+    pad.PaddingRight = UDim.new(PADDING, 0)
+
+    local icon = Instance.new("ImageLabel")
+icon.AnchorPoint = Vector2.new(0.5, 0.5)
+icon.Position = UDim2.fromScale(0.5, 0.5)
+icon.Size = UDim2.fromScale(1, 1)
+icon.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+icon.BackgroundTransparency = 1   -- nền trong suốt, ảnh mờ sẽ thấy xuyên qua
+icon.Image = texture
+icon.ScaleType = Enum.ScaleType.Crop
+icon.Rotation = 180
+icon.ImageTransparency = 0.4      -- chỉnh độ mờ ở đây
+icon.Parent = frame
+
+    local ratio = Instance.new("UIAspectRatioConstraint", icon)
+    ratio.AspectRatio = 1
+    ratio.DominantAxis = Enum.DominantAxis.Width
+
+    Instance.new("UICorner", icon).CornerRadius = UDim.new(CORNER_RADIUS, 0)
+
+    local stroke = Instance.new("UIStroke", icon)
+    stroke.Thickness = BORDER_THICK
+    stroke.Color = Color3.new(1, 1, 1) -- trắng để gradient hiện đúng màu
+    stroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    local grad = Instance.new("UIGradient", stroke)
+    grad.Rotation = 45
+
+    local function rainbow(hue)
+        local kps = {}
+        for i = 0, 12 do
+            local h = (i / 12 + hue) % 1
+            table.insert(kps, ColorSequenceKeypoint.new(i / 12, Color3.fromHSV(h, 1, 1)))
+        end
+        return ColorSequence.new(kps)
+    end
+
+    local hue = 0
+    local conn
+    conn = RunService.Heartbeat:Connect(function(dt)
+        if not sg.Parent then
+            conn:Disconnect()
+            return
+        end
+        hue = (hue + RAINBOW_SPEED * dt) % 1
+        grad.Color = rainbow(hue)
+    end)
+
+    local function cleanup()
+        if conn then conn:Disconnect() conn = nil end
+        if sg and sg.Parent then sg:Destroy() end
+        if decal and decal.Parent then decal.Transparency = origTransparency end
+    end
+
+    if win and win.Gui then
+        win.Gui.Destroying:Connect(cleanup)
+
+        
+    end
+end)
+
+-- ============================================================
+-- Fun Tab: Environment Shaders (5 presets)
+-- ============================================================
+local _SH = {
+    active = "Off",
+    particleHolder = nil,
+    conns = {},
+    parts = {},
+    original = nil,
+}
+
+local function _SH_snapshotLighting()
+    if _SH.original then return end
+    _SH.original = {
+        Ambient = Lighting.Ambient,
+        OutdoorAmbient = Lighting.OutdoorAmbient,
+        Brightness = Lighting.Brightness,
+        ClockTime = Lighting.ClockTime,
+        FogColor = Lighting.FogColor,
+        FogStart = Lighting.FogStart,
+        FogEnd = Lighting.FogEnd,
+        ColorShift_Top = Lighting.ColorShift_Top,
+        ColorShift_Bottom = Lighting.ColorShift_Bottom,
+    }
+end
+
+local function _SH_clearEffects()
+    for _, c in ipairs(_SH.conns) do pcall(function() c:Disconnect() end) end
+    _SH.conns = {}
+    for _, p in ipairs(_SH.parts) do pcall(function() p:Destroy() end) end
+    _SH.parts = {}
+    if _SH.particleHolder and _SH.particleHolder.Parent then
+        _SH.particleHolder:Destroy()
+    end
+    _SH.particleHolder = nil
+    local cc = Lighting:FindFirstChild("_RYZE_ShaderCC")
+    if cc then cc:Destroy() end
+    local atmo = Lighting:FindFirstChild("_RYZE_ShaderAtmo")
+    if atmo then atmo:Destroy() end
+    local bloom = Lighting:FindFirstChild("_RYZE_ShaderBloom")
+    if bloom then bloom:Destroy() end
+    local sunrays = Lighting:FindFirstChild("_RYZE_ShaderSunRays")
+    if sunrays then sunrays:Destroy() end
+end
+
+local function _SH_restoreLighting()
+    if not _SH.original then return end
+    for k, v in pairs(_SH.original) do
+        pcall(function() Lighting[k] = v end)
+    end
+    _SH.original = nil
+end
+
+-- Theo dõi camera để particle luôn quanh người chơi
+local function _SH_makeFollower(name)
+    local holder = Instance.new("Part")
+    holder.Name = name
+    holder.Transparency = 1
+    holder.CanCollide = false
+    holder.CanQuery = false
+    holder.CanTouch = false
+    holder.Anchored = true
+    holder.Size = Vector3.new(1, 1, 1)
+    holder.Parent = Workspace
+    _SH.particleHolder = holder
+    table.insert(_SH.conns, RunService.Heartbeat:Connect(function()
+        local char = LocalPlayer.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        if hrp and holder.Parent then
+            holder.CFrame = CFrame.new(hrp.Position)
+        end
+    end))
+    return holder
+end
+
+-- 1. NIGHT — bầu trời đêm, đom đóm bay quanh
+local function _SH_applyNight()
+    Lighting.ClockTime = 0.2
+    Lighting.Ambient = Color3.fromRGB(15, 18, 35)
+    Lighting.OutdoorAmbient = Color3.fromRGB(20, 25, 45)
+    Lighting.Brightness = 1
+    Lighting.FogColor = Color3.fromRGB(10, 12, 25)
+    Lighting.FogStart = 80
+    Lighting.FogEnd = 500
+
+    local cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "_RYZE_ShaderCC"
+    cc.Saturation = -0.15
+    cc.Contrast = 0.1
+    cc.TintColor = Color3.fromRGB(180, 195, 255)
+    cc.Brightness = -0.05
+    cc.Parent = Lighting
+
+    local atmo = Instance.new("Atmosphere")
+    atmo.Name = "_RYZE_ShaderAtmo"
+    atmo.Density = 0.3
+    atmo.Offset = 0.2
+    atmo.Color = Color3.fromRGB(80, 90, 140)
+    atmo.Decay = Color3.fromRGB(20, 20, 40)
+    atmo.Glare = 0.1
+    atmo.Haze = 1.5
+    atmo.Parent = Lighting
+
+    local holder = _SH_makeFollower("_RYZE_FireflyHolder")
+    for i = 1, 14 do
+        local att = Instance.new("Attachment")
+        att.Position = Vector3.new(math.random(-25, 25), math.random(1, 8), math.random(-25, 25))
+        att.Parent = holder
+        local light = Instance.new("PointLight")
+        light.Color = Color3.fromRGB(255, 230, 120)
+        light.Brightness = 2
+        light.Range = 6
+        light.Parent = att
+        local firefly = Instance.new("ParticleEmitter")
+        firefly.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+        firefly.Color = ColorSequence.new(Color3.fromRGB(255, 235, 140))
+        firefly.Size = NumberSequence.new(0.15)
+        firefly.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(0.5, 0.5),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        firefly.Lifetime = NumberRange.new(3, 5)
+        firefly.Rate = 2
+        firefly.Speed = NumberRange.new(0.3, 0.8)
+        firefly.SpreadAngle = Vector2.new(180, 180)
+        firefly.LightEmission = 1
+        firefly.Parent = att
+        table.insert(_SH.parts, att)
+    end
+end
+
+-- 2. SNOW — mùa đông, tuyết rơi, ánh sáng lạnh
+local function _SH_applySnow()
+    Lighting.ClockTime = 13
+    Lighting.Ambient = Color3.fromRGB(120, 130, 150)
+    Lighting.OutdoorAmbient = Color3.fromRGB(150, 160, 180)
+    Lighting.Brightness = 2.5
+    Lighting.FogColor = Color3.fromRGB(210, 220, 235)
+    Lighting.FogStart = 120
+    Lighting.FogEnd = 700
+
+    local cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "_RYZE_ShaderCC"
+    cc.Saturation = -0.3
+    cc.Contrast = 0.05
+    cc.TintColor = Color3.fromRGB(215, 230, 255)
+    cc.Brightness = 0.05
+    cc.Parent = Lighting
+
+    local atmo = Instance.new("Atmosphere")
+    atmo.Name = "_RYZE_ShaderAtmo"
+    atmo.Density = 0.25
+    atmo.Offset = 0.15
+    atmo.Color = Color3.fromRGB(220, 230, 245)
+    atmo.Decay = Color3.fromRGB(180, 190, 210)
+    atmo.Glare = 0.2
+    atmo.Haze = 1
+    atmo.Parent = Lighting
+
+    local holder = _SH_makeFollower("_RYZE_SnowHolder")
+    local att = Instance.new("Attachment")
+    att.Position = Vector3.new(0, 25, 0)
+    att.Parent = holder
+    local snow = Instance.new("ParticleEmitter")
+    snow.Texture = "rbxasset://textures/particles/snow_main.dds"
+    snow.Color = ColorSequence.new(Color3.fromRGB(255, 255, 255))
+    snow.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.25),
+        NumberSequenceKeypoint.new(1, 0.15),
+    })
+    snow.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.1),
+        NumberSequenceKeypoint.new(1, 0.4),
+    })
+    snow.Lifetime = NumberRange.new(4, 6)
+    snow.Rate = 60
+    snow.Speed = NumberRange.new(3, 5)
+    snow.SpreadAngle = Vector2.new(40, 40)
+    snow.Acceleration = Vector3.new(0, -8, 0)
+    snow.Rotation = NumberRange.new(0, 360)
+    snow.RotSpeed = NumberRange.new(-30, 30)
+    snow.Shape = Enum.ParticleEmitterShape.Box
+    snow.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+    snow.Parent = att
+    table.insert(_SH.parts, att)
+end
+
+-- 3. GOLDEN HOUR — hoàng hôn ấm, bụi lấp lánh
+local function _SH_applyGolden()
+    Lighting.ClockTime = 17.3
+    Lighting.Ambient = Color3.fromRGB(90, 60, 50)
+    Lighting.OutdoorAmbient = Color3.fromRGB(140, 90, 60)
+    Lighting.Brightness = 3
+    Lighting.FogColor = Color3.fromRGB(255, 170, 110)
+    Lighting.FogStart = 150
+    Lighting.FogEnd = 900
+
+    local cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "_RYZE_ShaderCC"
+    cc.Saturation = 0.2
+    cc.Contrast = 0.15
+    cc.TintColor = Color3.fromRGB(255, 200, 150)
+    cc.Brightness = 0.05
+    cc.Parent = Lighting
+
+    local atmo = Instance.new("Atmosphere")
+    atmo.Name = "_RYZE_ShaderAtmo"
+    atmo.Density = 0.3
+    atmo.Offset = 0.1
+    atmo.Color = Color3.fromRGB(255, 180, 120)
+    atmo.Decay = Color3.fromRGB(150, 90, 70)
+    atmo.Glare = 0.4
+    atmo.Haze = 1.2
+    atmo.Parent = Lighting
+
+    local bloom = Instance.new("BloomEffect")
+    bloom.Name = "_RYZE_ShaderBloom"
+    bloom.Intensity = 0.8
+    bloom.Size = 24
+    bloom.Threshold = 1.2
+    bloom.Parent = Lighting
+
+    local sunrays = Instance.new("SunRaysEffect")
+    sunrays.Name = "_RYZE_ShaderSunRays"
+    sunrays.Intensity = 0.25
+    sunrays.Spread = 0.6
+    sunrays.Parent = Lighting
+
+    local holder = _SH_makeFollower("_RYZE_DustHolder")
+    local att = Instance.new("Attachment")
+    att.Position = Vector3.new(0, 6, 0)
+    att.Parent = holder
+    local dust = Instance.new("ParticleEmitter")
+    dust.Texture = "rbxasset://textures/particles/sparkles_main.dds"
+    dust.Color = ColorSequence.new(Color3.fromRGB(255, 210, 160))
+    dust.Size = NumberSequence.new(0.1)
+    dust.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.4),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    dust.Lifetime = NumberRange.new(3, 5)
+    dust.Rate = 8
+    dust.Speed = NumberRange.new(0.5, 1.2)
+    dust.SpreadAngle = Vector2.new(180, 180)
+    dust.LightEmission = 1
+    dust.Parent = att
+    table.insert(_SH.parts, att)
+end
+
+-- 4. HORROR — sương mù dày, u ám, đỏ máu
+local function _SH_applyHorror()
+    Lighting.ClockTime = 1
+    Lighting.Ambient = Color3.fromRGB(20, 10, 10)
+    Lighting.OutdoorAmbient = Color3.fromRGB(15, 8, 8)
+    Lighting.Brightness = 0.5
+    Lighting.FogColor = Color3.fromRGB(20, 10, 10)
+    Lighting.FogStart = 15
+    Lighting.FogEnd = 150
+
+    local cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "_RYZE_ShaderCC"
+    cc.Saturation = -0.6
+    cc.Contrast = 0.3
+    cc.TintColor = Color3.fromRGB(255, 180, 180)
+    cc.Brightness = -0.1
+    cc.Parent = Lighting
+
+    local atmo = Instance.new("Atmosphere")
+    atmo.Name = "_RYZE_ShaderAtmo"
+    atmo.Density = 0.6
+    atmo.Offset = 0.05
+    atmo.Color = Color3.fromRGB(40, 20, 20)
+    atmo.Decay = Color3.fromRGB(10, 5, 5)
+    atmo.Glare = 0
+    atmo.Haze = 4
+    atmo.Parent = Lighting
+
+    -- Hạt bụi/muỗi bay lờ đờ trong sương
+    local holder = _SH_makeFollower("_RYZE_HorrorHolder")
+    local att = Instance.new("Attachment")
+    att.Position = Vector3.new(0, 3, 0)
+    att.Parent = holder
+    local motes = Instance.new("ParticleEmitter")
+    motes.Texture = "rbxasset://textures/particles/smoke_main.dds"
+    motes.Color = ColorSequence.new(Color3.fromRGB(30, 15, 15))
+    motes.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 2),
+        NumberSequenceKeypoint.new(1, 6),
+    })
+    motes.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.7),
+        NumberSequenceKeypoint.new(1, 1),
+    })
+    motes.Lifetime = NumberRange.new(5, 8)
+    motes.Rate = 4
+    motes.Speed = NumberRange.new(0.2, 0.5)
+    motes.SpreadAngle = Vector2.new(180, 180)
+    motes.Parent = att
+    table.insert(_SH.parts, att)
+end
+
+-- 5. CYBERPUNK — neon tím/xanh, mưa nhẹ, bloom mạnh
+local function _SH_applyCyberpunk()
+    Lighting.ClockTime = 0
+    Lighting.Ambient = Color3.fromRGB(35, 15, 55)
+    Lighting.OutdoorAmbient = Color3.fromRGB(20, 20, 60)
+    Lighting.Brightness = 1.5
+    Lighting.FogColor = Color3.fromRGB(25, 10, 45)
+    Lighting.FogStart = 60
+    Lighting.FogEnd = 400
+
+    local cc = Instance.new("ColorCorrectionEffect")
+    cc.Name = "_RYZE_ShaderCC"
+    cc.Saturation = 0.4
+    cc.Contrast = 0.25
+    cc.TintColor = Color3.fromRGB(210, 170, 255)
+    cc.Brightness = 0
+    cc.Parent = Lighting
+
+    local atmo = Instance.new("Atmosphere")
+    atmo.Name = "_RYZE_ShaderAtmo"
+    atmo.Density = 0.35
+    atmo.Offset = 0.15
+    atmo.Color = Color3.fromRGB(120, 60, 200)
+    atmo.Decay = Color3.fromRGB(20, 10, 50)
+    atmo.Glare = 0.3
+    atmo.Haze = 2
+    atmo.Parent = Lighting
+
+    local bloom = Instance.new("BloomEffect")
+    bloom.Name = "_RYZE_ShaderBloom"
+    bloom.Intensity = 1.3
+    bloom.Size = 32
+    bloom.Threshold = 0.9
+    bloom.Parent = Lighting
+
+    local holder = _SH_makeFollower("_RYZE_RainHolder")
+    local att = Instance.new("Attachment")
+    att.Position = Vector3.new(0, 20, 0)
+    att.Parent = holder
+    local rain = Instance.new("ParticleEmitter")
+    rain.Texture = "rbxasset://textures/particles/fire_main.dds"
+    rain.Color = ColorSequence.new(Color3.fromRGB(150, 220, 255))
+    rain.Size = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.05),
+        NumberSequenceKeypoint.new(1, 0.02),
+    })
+    rain.Transparency = NumberSequence.new({
+        NumberSequenceKeypoint.new(0, 0.3),
+        NumberSequenceKeypoint.new(1, 0.7),
+    })
+    rain.Lifetime = NumberRange.new(1, 1.5)
+    rain.Rate = 100
+    rain.Speed = NumberRange.new(25, 35)
+    rain.SpreadAngle = Vector2.new(5, 5)
+    rain.Acceleration = Vector3.new(0, -40, 0)
+    rain.Shape = Enum.ParticleEmitterShape.Box
+    rain.ShapeStyle = Enum.ParticleEmitterShapeStyle.Volume
+    rain.LightEmission = 0.5
+    rain.Parent = att
+    table.insert(_SH.parts, att)
+end
+
+local _SH_PRESETS = {
+    ["Off"]       = nil,
+    ["Night"]     = _SH_applyNight,
+    ["Snow"]      = _SH_applySnow,
+    ["Golden Hour"] = _SH_applyGolden,
+    ["Horror"]    = _SH_applyHorror,
+    ["Cyberpunk"] = _SH_applyCyberpunk,
+}
+
+local function _SH_setPreset(name)
+    _SH_clearEffects()
+    if name == "Off" then
+        _SH_restoreLighting()
+        _SH.active = "Off"
+        return
+    end
+    _SH_snapshotLighting()
+    local fn = _SH_PRESETS[name]
+    if fn then fn() end
+    _SH.active = name
+end
+
+FunTab:CreateSection("Environment Shaders")
+
+FunTab:CreateDropdown({
+    Name = "Shader Preset",
+    Options = { "Off", "Night", "Snow", "Golden Hour", "Horror", "Cyberpunk" },
+    Default = "Off",
+    Callback = function(v) _SH_setPreset(v) end,
+})
+
+win.Gui.Destroying:Connect(function()
+    pcall(_SH_clearEffects)
+    pcall(_SH_restoreLighting)
 end)
 
 -- ============================================================
